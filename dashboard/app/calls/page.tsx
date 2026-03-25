@@ -123,7 +123,7 @@ export default function CallsPage() {
               <label className="grid gap-2 text-sm text-ink/65">
                 Finestra dati
                 <select
-                  className="rounded-2xl border border-stone bg-ivory/80 px-4 py-3 text-ink outline-none"
+                  className="rounded-2xl border border-stone bg-ivory/80 px-4 py-3 text-ink outline-none transition focus:border-gold"
                   value={days}
                   onChange={(event) => setDays(Number(event.target.value))}
                 >
@@ -136,7 +136,7 @@ export default function CallsPage() {
               <label className="grid gap-2 text-sm text-ink/65">
                 Esito
                 <select
-                  className="rounded-2xl border border-stone bg-ivory/80 px-4 py-3 text-ink outline-none"
+                  className="rounded-2xl border border-stone bg-ivory/80 px-4 py-3 text-ink outline-none transition focus:border-gold"
                   value={outcome}
                   onChange={(event) => setOutcome(event.target.value)}
                 >
@@ -188,7 +188,7 @@ export default function CallsPage() {
                       </div>
                       <div className="text-right text-xs uppercase tracking-[0.22em] text-ink/40">
                         <p>{formatDateTime(call.started_at)}</p>
-                        <p className="mt-2">{call.duration_seconds}s</p>
+                        <p className="mt-2">{Math.floor(call.duration_seconds / 60)}:{String(call.duration_seconds % 60).padStart(2, "0")}</p>
                       </div>
                     </div>
                   </button>
@@ -211,7 +211,7 @@ export default function CallsPage() {
         </div>
 
         <div className="space-y-6">
-          <SectionCard title="Transcript preview" kicker="On demand">
+          <SectionCard title="Anteprima trascrizione" kicker="Su richiesta">
             {error ? (
               <p className="rounded-[1.45rem] border border-terracotta/30 bg-terracotta/10 px-4 py-4 text-sm text-terracotta">
                 {error}
@@ -236,18 +236,18 @@ export default function CallsPage() {
                   </div>
                 ) : null}
                 <pre className="whitespace-pre-wrap rounded-[1.45rem] border border-stone/80 bg-white/80 p-4 text-sm leading-7 text-ink/72">
-                  {transcript.transcript ?? "Nessun transcript disponibile. Collega l'API ElevenLabs per il recupero completo."}
+                  {transcript.transcript ?? "Nessuna trascrizione disponibile. Collega l'API ElevenLabs per il recupero completo."}
                 </pre>
               </div>
             ) : (
               <p className="rounded-[1.45rem] border border-dashed border-stone px-4 py-10 text-sm text-ink/55">
-                Seleziona una chiamata dalla lista per vedere il transcript preview o il transcript remoto se
+                Seleziona una chiamata dalla lista per visualizzare l'anteprima o la trascrizione completa se
                 la chiave ElevenLabs è configurata.
               </p>
             )}
           </SectionCard>
 
-          <SectionCard title="Escalation breakdown" kicker="Supervisione">
+          <SectionCard title="Dettaglio escalation" kicker="Supervisione">
             <div className="space-y-3">
               {trends?.escalations.length ? (
                 trends.escalations.map((item) => (

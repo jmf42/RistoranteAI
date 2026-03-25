@@ -447,6 +447,22 @@ export default function SettingsPage() {
                     </label>
                   </div>
                 ))}
+                <button
+                  type="button"
+                  onClick={() =>
+                    setForm((current) =>
+                      current
+                        ? {
+                            ...current,
+                            turni: [...current.turni, { name: "", start: "19:00", end: "23:00", max_covers: 30 }]
+                          }
+                        : current
+                    )
+                  }
+                  className="rounded-[1.5rem] border border-dashed border-stone/60 px-4 py-3 text-sm text-ink/50 transition hover:border-gold hover:text-ink/70"
+                >
+                  + Aggiungi turno
+                </button>
               </div>
 
               <div className="grid gap-4 md:grid-cols-2">

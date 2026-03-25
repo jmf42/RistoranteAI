@@ -128,6 +128,11 @@ export default function HomePage() {
           <div className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
             <SectionCard title="Attività recente" kicker="Live feed">
               <div className="space-y-3">
+                {overview.recent_activity.length === 0 ? (
+                  <p className="rounded-[1.4rem] border border-dashed border-stone px-4 py-8 text-sm text-ink/55">
+                    Nessuna attività registrata oggi. Le prenotazioni e le modifiche appariranno qui in tempo reale.
+                  </p>
+                ) : null}
                 {overview.recent_activity.map((item) => (
                   <article
                     key={item.id}

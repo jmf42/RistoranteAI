@@ -204,7 +204,7 @@ export default function AdminPage() {
               <label key={field} className="grid gap-2 text-sm text-ink/65">
                 {label}
                 <input
-                  className="rounded-2xl border border-stone bg-ivory/80 px-4 py-3 text-ink outline-none"
+                  className="rounded-2xl border border-stone bg-ivory/80 px-4 py-3 text-ink outline-none transition focus:border-gold"
                   value={(form as Record<string, string>)[field]}
                   pattern={pattern || undefined}
                   placeholder={field === "slug" ? "trattoria-da-mario" : undefined}
@@ -218,7 +218,7 @@ export default function AdminPage() {
               type="button"
               onClick={() => void createRestaurant()}
               disabled={saving || !form.name || !form.slug || !form.address}
-              className="rounded-2xl bg-ink px-5 py-3 text-sm font-semibold uppercase tracking-[0.26em] text-ivory"
+              className="rounded-2xl bg-ink px-5 py-3 text-sm font-semibold uppercase tracking-[0.26em] text-ivory transition hover:bg-night disabled:cursor-not-allowed disabled:opacity-50"
             >
               {saving ? "Creo..." : "Crea tenant"}
             </button>

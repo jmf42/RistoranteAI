@@ -39,12 +39,36 @@ export default function CapacityPage() {
       title="Capienza"
       subtitle="Leggi l’occupazione per turno, capisci quanto margine resta e anticipa le fasce che rischiano di saturarsi."
       actions={
-        <input
-          type="date"
-          value={selectedDate}
-          onChange={(event) => setSelectedDate(event.target.value)}
-          className="rounded-2xl border border-stone bg-ivory/80 px-4 py-3 text-sm text-ink outline-none"
-        />
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              const d = new Date(selectedDate);
+              d.setDate(d.getDate() - 1);
+              setSelectedDate(d.toISOString().slice(0, 10));
+            }}
+            className="rounded-full border border-stone px-3 py-2 text-sm text-ink/60 transition hover:border-gold hover:text-ink"
+          >
+            ←
+          </button>
+          <input
+            type="date"
+            value={selectedDate}
+            onChange={(event) => setSelectedDate(event.target.value)}
+            className="rounded-2xl border border-stone bg-ivory/80 px-4 py-3 text-sm text-ink outline-none transition focus:border-gold"
+          />
+          <button
+            type="button"
+            onClick={() => {
+              const d = new Date(selectedDate);
+              d.setDate(d.getDate() + 1);
+              setSelectedDate(d.toISOString().slice(0, 10));
+            }}
+            className="rounded-full border border-stone px-3 py-2 text-sm text-ink/60 transition hover:border-gold hover:text-ink"
+          >
+            →
+          </button>
+        </div>
       }
     >
       <div className="grid gap-6 xl:grid-cols-[0.66fr_0.34fr]">

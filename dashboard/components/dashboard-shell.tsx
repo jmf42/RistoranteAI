@@ -134,7 +134,7 @@ export function DashboardShell({
                   <label className="flex min-w-[240px] flex-col gap-2 text-xs font-semibold uppercase tracking-[0.24em] text-ink/45">
                     Ristorante attivo
                     <select
-                      className="rounded-2xl border border-stone bg-ivory/80 px-4 py-3 text-sm font-medium normal-case tracking-normal text-ink outline-none"
+                      className="rounded-2xl border border-stone bg-ivory/80 px-4 py-3 text-sm font-medium normal-case tracking-normal text-ink outline-none transition focus:border-gold"
                       value={activeRestaurantId ?? ""}
                       onChange={(event) => setActiveRestaurantId(event.target.value)}
                     >
