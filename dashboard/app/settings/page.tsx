@@ -363,8 +363,24 @@ export default function SettingsPage() {
                 {form.turni.map((turno, index) => (
                   <div
                     key={`${turno.name}-${index}`}
-                    className="grid gap-3 rounded-[1.5rem] border border-stone/80 bg-ivory/70 p-4 md:grid-cols-4"
+                    className="relative grid gap-3 rounded-[1.5rem] border border-stone/80 bg-ivory/70 p-4 md:grid-cols-4"
                   >
+                    {form.turni.length > 1 ? (
+                      <button
+                        type="button"
+                        title="Rimuovi turno"
+                        onClick={() =>
+                          setForm((current) =>
+                            current
+                              ? { ...current, turni: current.turni.filter((_, i) => i !== index) }
+                              : current
+                          )
+                        }
+                        className="absolute right-3 top-3 rounded-full border border-stone/60 px-2 py-0.5 text-xs text-ink/40 transition hover:border-terracotta hover:text-terracotta"
+                      >
+                        ✕
+                      </button>
+                    ) : null}
                     <label className="grid gap-2 text-sm text-ink/65">
                       Nome turno
                       <input
@@ -515,7 +531,7 @@ export default function SettingsPage() {
                 type="button"
                 onClick={() => void save()}
                 disabled={saving}
-                className="rounded-2xl bg-ink px-5 py-3 text-sm font-semibold uppercase tracking-[0.26em] text-ivory"
+                className="rounded-2xl bg-ink px-5 py-3 text-sm font-semibold uppercase tracking-[0.26em] text-ivory transition hover:bg-night disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {saving ? "Salvo..." : "Salva configurazione"}
               </button>
