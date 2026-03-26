@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from starlette.responses import JSONResponse
 
-from app.api import analytics, auth, bookings, calls, personalization, restaurants, tools, webhooks
+from app.api import analytics, auth, bookings, calls, personalization, restaurants, tools, twilio, webhooks
 from app.core.config import settings
 from app.core.database import SessionLocal, init_db
 from app.core.observability import client_ip_for_request, configure_logging, get_request_id, logging_middleware
@@ -102,6 +102,7 @@ app.include_router(analytics.router, prefix=settings.api_prefix)
 app.include_router(tools.router, prefix=settings.api_prefix)
 app.include_router(personalization.router, prefix=settings.api_prefix)
 app.include_router(webhooks.router, prefix=settings.api_prefix)
+app.include_router(twilio.router, prefix=settings.api_prefix)
 
 
 @app.get("/health")

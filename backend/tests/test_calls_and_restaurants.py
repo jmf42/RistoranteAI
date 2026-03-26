@@ -106,10 +106,6 @@ def test_owner_can_update_assistant_settings(client, db_session, monkeypatch):
         f"/api/restaurants/{restaurant.id}",
         json={
             "assistant_settings": {
-                "llm_provider": "openai",
-                "openai_model": "gpt-5.4",
-                "reasoning_effort": "low",
-                "response_verbosity": "medium",
                 "custom_greeting": "Buonasera, risponde il desk prenotazioni.",
                 "agent_style_notes": "Elegant and direct."
             }
@@ -117,17 +113,13 @@ def test_owner_can_update_assistant_settings(client, db_session, monkeypatch):
     )
     assert response.status_code == 200
     payload = response.json()
-    assert payload["assistant_settings"]["openai_model"] == "gpt-5.4"
     assert payload["assistant_settings"]["custom_greeting"] == "Buonasera, risponde il desk prenotazioni."
+    assert payload["assistant_settings"]["agent_style_notes"] == "Elegant and direct."
 
 
 def test_personalization_includes_assistant_settings(client, db_session):
     restaurant = db_session.scalar(select(Restaurant).where(Restaurant.slug == "trattoria-da-mario"))
     restaurant.assistant_settings = {
-        "llm_provider": "openai",
-        "openai_model": "gpt-5.4",
-        "reasoning_effort": "low",
-        "response_verbosity": "medium",
         "custom_greeting": "Buonasera, benvenuti da Mario.",
         "agent_style_notes": "Elegant and direct.",
     }
@@ -146,9 +138,7 @@ def test_personalization_includes_assistant_settings(client, db_session):
     )
     assert response.status_code == 200
     payload = response.json()
-    assert payload["dynamic_variables"]["openai_model"] == "gpt-5.4"
-    assert payload["dynamic_variables"]["reasoning_effort"] == "low"
-    assert payload["dynamic_variables"]["response_verbosity"] == "medium"
+    assert payload["dynamic_variables"]["agent_style_notes"] == "Elegant and direct."
     assert payload["conversation_config_override"]["agent"]["first_message"] == "Buonasera, benvenuti da Mario."
 
 
@@ -192,10 +182,6 @@ def test_operator_duplicate_restaurant_slug_returns_conflict(client):
                 "min_lead_hours": 2,
             },
             "assistant_settings": {
-                "llm_provider": "openai",
-                "openai_model": "gpt-5-mini",
-                "reasoning_effort": "minimal",
-                "response_verbosity": "low",
                 "custom_greeting": None,
                 "agent_style_notes": None,
             },
@@ -262,3 +248,37 @@ def test_bookings_list_handles_legacy_unreadable_pii_without_crashing(client, db
     payload = response.json()
     assert payload[0]["customer_name"] == "Dato non disponibile"
     assert payload[0]["customer_phone"] == "Dato non disponibile"
+
+
+def test_twilio_voice_fallback_returns_italian_dial_flow_for_known_restaurant(client, db_session):
+    restaurant = db_session.scalar(select(Restaurant).where(Restaurant.slug == "trattoria-da-mario"))
+    assert restaurant is not None
+
+    response = client.post(
+        "/api/twilio/voice-fallback",
+        data={
+            "Called": restaurant.twilio_phone,
+            "From": "+41779802809",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("application/xml")
+    body = response.text
+    assert "Ci scusi, stiamo avendo un problema tecnico" in body
+    assert f"<Dial>{restaurant.escalation_phone}</Dial>" in body
+
+
+def test_twilio_voice_fallback_hangs_up_for_unknown_restaurant(client):
+    response = client.post(
+        "/api/twilio/voice-fallback",
+        data={
+            "Called": "+41225394205",
+            "From": "+41779802809",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.text
+    assert "La invitiamo a richiamare tra qualche minuto." in body
+    assert "<Hangup/>" in body

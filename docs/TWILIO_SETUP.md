@@ -41,3 +41,16 @@ Response:
 - map `called_number` to the restaurant when possible
 - keep `elevenlabs_agent_id` on the restaurant row for an additional routing key
 - prefer E.164 numbers everywhere
+
+## Failure Fallback
+
+If the primary Twilio voice handler fails, configure this backend endpoint as the fallback:
+
+- `POST /api/twilio/voice-fallback`
+
+Behavior:
+
+- if the called number matches a restaurant with an `escalation_phone`, Twilio plays a short Italian apology and dials the restaurant
+- otherwise Twilio plays a short Italian apology and hangs up cleanly
+
+This does not replace the main ElevenLabs telephony routing. It only prevents callers from hearing the default English Twilio application error when the upstream voice handler is broken.
