@@ -6,7 +6,7 @@
     "dev": "next dev --hostname 127.0.0.1",
     "build": "next build",
     "start": "next start --hostname 127.0.0.1",
-    "start:cloudrun": "next start --hostname 0.0.0.0"
+    "start:cloudrun": "next start --hostname 0.0.0.0 --port ${PORT:-8080}"
   },
   "dependencies": {
     "lucide-react": "^0.511.0",

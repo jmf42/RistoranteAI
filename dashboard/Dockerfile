@@ -28,5 +28,6 @@ COPY --from=build /app/dashboard/next.config.mjs ./next.config.mjs
 RUN chown -R appuser:appgroup /app
 USER appuser
 
+ENV PORT=8080
 EXPOSE 8080
 CMD ["npm", "run", "start:cloudrun"]

@@ -18,7 +18,7 @@ const bodyFont = Manrope({
 
 export const metadata: Metadata = {
   title: "Ristorante AI",
-  description: "AI phone receptionist and reservation control room for restaurants."
+  description: "Ogni chiamata diventa un tavolo. Receptionist AI per ristoranti italiani — prenotazioni 24/7, zero chiamate perse."
 };
 
 export default function RootLayout({

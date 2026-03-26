@@ -76,7 +76,7 @@ export function DashboardShell({
               </p>
               <h1 className="mt-4 font-display text-4xl leading-none">Ristorante AI</h1>
               <p className="mt-3 text-sm text-ivory/70">
-                Prenotazioni telefoniche, operazioni e capacità in una sola cabina di regia.
+                Più tavoli pieni, meno telefonate al banco. Tutto in una sola cabina di regia.
               </p>
             </div>
             <nav className="mt-10 space-y-2">

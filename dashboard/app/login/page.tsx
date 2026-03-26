@@ -8,20 +8,20 @@ export default function LoginPage() {
       <div className="grid w-full max-w-6xl gap-6 lg:grid-cols-[1.2fr_0.8fr]">
         <section className="overflow-hidden rounded-[2.5rem] border border-white/70 bg-night p-8 text-ivory shadow-card lg:p-12">
           <p className="text-xs font-semibold uppercase tracking-[0.34em] text-gold/75">
-            Premium restaurant operations
+            Zero chiamate perse, più tavoli pieni
           </p>
           <h1 className="mt-5 max-w-2xl font-display text-5xl leading-tight lg:text-6xl">
-            L’hostess telefonica AI che lavora come il tuo miglior maître.
+            Ogni chiamata diventa un tavolo. Anche alle 2 di notte.
           </h1>
           <p className="mt-6 max-w-2xl text-base leading-8 text-ivory/70">
-            Gestisci chiamate, prenotazioni, capienza e performance del ristorante in una dashboard
-            pensata per l’ospitalità italiana, non per un call center generico.
+            Il tuo receptionist AI risponde, prenota e gestisce i coperti — così il team si concentra
+            sulla sala e la cucina, non sul telefono che squilla.
           </p>
           <div className="mt-10 grid gap-4 sm:grid-cols-3">
             {[
-              ["24/7", "Risponde sempre"],
-              ["2 min", "Prenotazione media"],
-              ["Live", "Capienza e chiamate"]
+              ["24/7", "Nessuna chiamata persa"],
+              ["~90s", "Da squillo a conferma"],
+              ["100%", "Visibilità coperti live"]
             ].map(([value, label]) => (
               <article key={label} className="rounded-[1.7rem] border border-white/10 bg-white/5 p-5">
                 <p className="font-display text-4xl text-white">{value}</p>

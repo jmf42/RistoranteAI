@@ -56,7 +56,7 @@ export default function HomePage() {
   return (
     <DashboardShell
       title="Panoramica operativa"
-      subtitle="Le metriche che contano oggi, i segnali di domanda e il ritmo del servizio nella fascia serale."
+      subtitle="Quante chiamate hai convertito oggi, dove perdi coperti e come sta girando il servizio serale."
     >
       {error ? (
         <p className="rounded-[1.45rem] border border-terracotta/30 bg-terracotta/10 px-4 py-4 text-sm text-terracotta">
