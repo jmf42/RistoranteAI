@@ -48,7 +48,8 @@ def login(payload: LoginRequest, response: Response, db: Session = Depends(get_d
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
-def logout(response: Response) -> Response:
+def logout() -> Response:
+    response = Response(status_code=status.HTTP_204_NO_CONTENT)
     clear_auth_cookie(response)
     return response
 
