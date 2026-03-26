@@ -56,10 +56,10 @@ export function DashboardShell({
     return (
       <div className="flex min-h-screen items-center justify-center bg-grain px-6">
         <div className="rounded-[2rem] border border-white/70 bg-white/75 px-8 py-10 text-center shadow-card">
-          <p className="text-xs font-semibold uppercase tracking-[0.32em] text-terracotta/70">
+          <p className="ui-kicker text-xs font-semibold uppercase tracking-[0.24em] text-terracotta/70 sm:tracking-[0.32em]">
             Ristorante AI
           </p>
-          <p className="mt-4 font-display text-3xl text-ink">Carico la postazione...</p>
+          <p className="ui-display-title mt-4 font-display text-3xl text-ink">Carico la postazione...</p>
         </div>
       </div>
     );
@@ -71,10 +71,10 @@ export function DashboardShell({
         <aside className="lg:sticky lg:top-5 lg:h-[calc(100vh-2.5rem)] lg:w-[280px] lg:flex-none">
           <div className="flex h-full flex-col rounded-[2rem] border border-white/70 bg-night px-6 py-7 text-ivory shadow-card">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.34em] text-gold/80">
+              <p className="ui-kicker text-xs font-semibold uppercase tracking-[0.24em] text-gold/80 sm:tracking-[0.34em]">
                 Italian hospitality OS
               </p>
-              <h1 className="mt-4 font-display text-4xl leading-none">Ristorante AI</h1>
+              <h1 className="ui-display-title mt-4 font-display text-4xl">Ristorante AI</h1>
               <p className="mt-3 text-sm text-ivory/70">
                 Più tavoli pieni, meno telefonate al banco. Tutto in una sola cabina di regia.
               </p>
@@ -123,10 +123,10 @@ export function DashboardShell({
           <div className="rounded-[2.25rem] border border-white/75 bg-white/70 p-5 shadow-card backdrop-blur lg:p-7">
             <header className="mb-8 flex flex-col gap-5 border-b border-stone/80 pb-6 lg:flex-row lg:items-end lg:justify-between">
               <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.32em] text-terracotta/70">
-                  {restaurant ? restaurant.name : "Workspace"}
-                </p>
-                <h2 className="mt-3 font-display text-4xl text-ink">{title}</h2>
+              <p className="ui-kicker text-xs font-semibold uppercase tracking-[0.24em] text-terracotta/70 sm:tracking-[0.32em]">
+                {restaurant ? restaurant.name : "Workspace"}
+              </p>
+              <h2 className="ui-display-title mt-3 font-display text-4xl text-ink">{title}</h2>
                 <p className="mt-2 max-w-2xl text-sm leading-6 text-ink/65">{subtitle}</p>
               </div>
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center">

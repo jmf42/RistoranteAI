@@ -47,6 +47,38 @@ a {
   font-family: var(--font-display), serif;
 }
 
+.ui-kicker {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  text-wrap: balance;
+}
+
+.ui-display-title {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  text-wrap: balance;
+  line-height: 0.96;
+}
+
+.ui-display-card-value {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  text-wrap: balance;
+  line-height: 0.9;
+  font-size: clamp(2.6rem, 4vw, 4.4rem);
+}
+
+.ui-display-stat-value {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  text-wrap: balance;
+  line-height: 0.92;
+  font-size: clamp(2rem, 3vw, 2.6rem);
+}
+
 input,
 select,
 textarea,

@@ -154,11 +154,11 @@ export default function HomePage() {
 
             <SectionCard title="Lettura rapida del giorno" kicker="Front of house">
               <div className="grid gap-4 sm:grid-cols-2">
-                <article className="rounded-[1.5rem] border border-stone/80 bg-ivory/70 p-5">
-                  <p className="text-xs uppercase tracking-[0.28em] text-terracotta/70">
+                <article className="min-w-0 rounded-[1.5rem] border border-stone/80 bg-ivory/70 p-5">
+                  <p className="ui-kicker text-xs uppercase tracking-[0.22em] text-terracotta/70 sm:tracking-[0.28em]">
                     Stato conversione
                   </p>
-                  <p className="mt-4 font-display text-5xl text-ink">
+                  <p className="ui-display-card-value mt-4 font-display text-ink">
                     {overview.booking_rate_today.status === "good" ? "Solido" : "Attenzione"}
                   </p>
                   <p className="mt-3 text-sm leading-7 text-ink/65">
@@ -167,11 +167,11 @@ export default function HomePage() {
                     settimanale.
                   </p>
                 </article>
-                <article className="rounded-[1.5rem] border border-stone/80 bg-ink p-5 text-ivory">
-                  <p className="text-xs uppercase tracking-[0.28em] text-gold/75">
+                <article className="min-w-0 rounded-[1.5rem] border border-stone/80 bg-ink p-5 text-ivory">
+                  <p className="ui-kicker text-xs uppercase tracking-[0.22em] text-gold/75 sm:tracking-[0.28em]">
                     Turno da sorvegliare
                   </p>
-                  <p className="mt-4 font-display text-5xl">
+                  <p className="ui-display-card-value mt-4 font-display">
                     {trends.escalations.length ? trends.escalations[0].outcome.replaceAll("_", " ") : "nessuno"}
                   </p>
                   <p className="mt-3 text-sm leading-7 text-ivory/70">
