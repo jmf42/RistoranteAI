@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -125,18 +125,19 @@ def modify_booking_tool(
     request: Request,
     db: Session = Depends(get_db),
 ) -> ModifyBookingResponse:
-    booking = db.scalar(
-        select(Booking).where(
-            Booking.confirmation_code == payload.confirmation_code,
-            Booking.status.in_(ACTIVE_STATUSES),
-        )
+    stmt = select(Booking).where(
+        Booking.confirmation_code == payload.confirmation_code,
+        Booking.status.in_(ACTIVE_STATUSES),
     )
+    if payload.restaurant_id:
+        stmt = stmt.where(Booking.restaurant_id == payload.restaurant_id)
+    booking = db.scalar(stmt)
     if not booking:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Booking not found")
+        return ModifyBookingResponse(success=False, reason="Prenotazione non trovata.")
     updated, error = update_booking(
         db,
         booking=booking,
-        changes=BookingUpdate(**payload.changes.model_dump(exclude_none=True)),
+        changes=BookingUpdate(**payload.changes.model_dump(exclude_unset=True)),
         changed_by="ai_phone",
     )
     if error:
@@ -175,14 +176,15 @@ def cancel_booking_tool(
     request: Request,
     db: Session = Depends(get_db),
 ) -> CancelBookingResponse:
-    booking = db.scalar(
-        select(Booking).where(
-            Booking.confirmation_code == payload.confirmation_code,
-            Booking.status.in_(ACTIVE_STATUSES),
-        )
+    stmt = select(Booking).where(
+        Booking.confirmation_code == payload.confirmation_code,
+        Booking.status.in_(ACTIVE_STATUSES),
     )
+    if payload.restaurant_id:
+        stmt = stmt.where(Booking.restaurant_id == payload.restaurant_id)
+    booking = db.scalar(stmt)
     if not booking:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Booking not found")
+        return CancelBookingResponse(success=False)
     cancel_booking(db, booking=booking, changed_by="ai_phone")
     db.commit()
     json_log(

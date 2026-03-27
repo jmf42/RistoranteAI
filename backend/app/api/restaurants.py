@@ -17,33 +17,6 @@ from app.services.availability import COUNTABLE_STATUSES
 router = APIRouter(prefix="/restaurants", tags=["restaurants"])
 
 
-def _assistant_settings_payload(restaurant: Restaurant) -> dict:
-    settings = dict(getattr(restaurant, "assistant_settings", {}) or {})
-    settings.setdefault("llm_provider", "openai")
-    settings.setdefault("openai_model", "gpt-5-mini")
-    settings.setdefault("reasoning_effort", "minimal")
-    settings.setdefault("response_verbosity", "low")
-    settings.setdefault("custom_greeting", None)
-    settings.setdefault("agent_style_notes", "Warm, concise, premium Italian hospitality tone.")
-    return settings
-
-
-def _apply_restaurant_payload(restaurant: Restaurant, payload: RestaurantCreate | RestaurantUpdate) -> None:
-    data = payload.model_dump(exclude_none=True)
-    assistant_settings = _assistant_settings_payload(restaurant)
-    custom_greeting = data.pop("custom_greeting", None) if "custom_greeting" in data else None
-    agent_style_notes = data.pop("agent_style_notes", None) if "agent_style_notes" in data else None
-
-    for field, value in data.items():
-        setattr(restaurant, field, value)
-
-    if "custom_greeting" in payload.model_fields_set:
-        assistant_settings["custom_greeting"] = custom_greeting
-    if "agent_style_notes" in payload.model_fields_set:
-        assistant_settings["agent_style_notes"] = agent_style_notes
-    restaurant.assistant_settings = assistant_settings
-
-
 def _raise_restaurant_integrity_error(exc: IntegrityError) -> None:
     message = str(getattr(exc, "orig", exc)).lower()
     if "slug" in message:
@@ -54,7 +27,6 @@ def _raise_restaurant_integrity_error(exc: IntegrityError) -> None:
 
 
 def _to_read(restaurant: Restaurant, sync_status: SyncStatus | None = None) -> RestaurantRead:
-    assistant_settings = _assistant_settings_payload(restaurant)
     return RestaurantRead(
         id=restaurant.id,
         slug=restaurant.slug,
@@ -68,8 +40,8 @@ def _to_read(restaurant: Restaurant, sync_status: SyncStatus | None = None) -> R
         closure_dates=restaurant.closure_dates,
         turni=restaurant.turni,
         booking_rules=restaurant.booking_rules,
-        custom_greeting=assistant_settings.get("custom_greeting"),
-        agent_style_notes=assistant_settings.get("agent_style_notes"),
+        custom_greeting=restaurant.custom_greeting,
+        agent_style_notes=restaurant.agent_style_notes,
         escalation_phone=restaurant.escalation_phone,
         is_active=restaurant.is_active,
         created_at=restaurant.created_at.isoformat(),
@@ -132,8 +104,7 @@ def list_restaurants(db: Session = Depends(get_db)) -> list[RestaurantSummary]:
 
 @router.post("", response_model=RestaurantRead, dependencies=[Depends(require_roles("operator"))])
 def create_restaurant(payload: RestaurantCreate, db: Session = Depends(get_db)) -> RestaurantRead:
-    restaurant = Restaurant()
-    _apply_restaurant_payload(restaurant, payload)
+    restaurant = Restaurant(**payload.model_dump())
     db.add(restaurant)
     try:
         db.commit()
@@ -154,7 +125,8 @@ def update_restaurant(
 ) -> RestaurantRead:
     resolved_id = accessible_restaurant_id(db, current_user=current_user, restaurant_id=restaurant_id)
     restaurant = get_restaurant_or_404(db, resolved_id)
-    _apply_restaurant_payload(restaurant, payload)
+    for field, value in payload.model_dump(exclude_unset=True).items():
+        setattr(restaurant, field, value)
     db.add(restaurant)
     try:
         db.commit()

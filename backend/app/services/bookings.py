@@ -3,10 +3,10 @@ from __future__ import annotations
 from datetime import date, time
 from typing import Any
 
-from sqlalchemy import Select, asc, select
+from sqlalchemy import Select, asc, func, select
 from sqlalchemy.orm import Session
 
-from app.core.security import decrypt_pii_or_fallback, encrypt_pii, hash_phone, normalize_phone
+from app.core.security import decrypt_pii_or_fallback, encrypt_pii, hash_phone, mask_phone, normalize_phone
 from app.models import Booking, BookingEvent, Customer, Restaurant, User
 from app.schemas.booking import BookingCreate, BookingRead, BookingUpdate
 from app.schemas.common import BookingStatus
@@ -29,13 +29,17 @@ def lock_restaurant(db: Session, restaurant_id: str) -> Restaurant | None:
 def generate_confirmation_code(db: Session, restaurant: Restaurant, booking_date: date) -> str:
     prefix = restaurant_initials(restaurant.name)
     date_part = booking_date.strftime("%m%d")
-    counter = 1
-    while True:
-        candidate = f"{prefix}-{date_part}{counter:02d}"
-        exists = db.scalar(select(Booking.id).where(Booking.confirmation_code == candidate))
-        if not exists:
-            return candidate
-        counter += 1
+    existing_count = db.scalar(
+        select(func.count(Booking.id)).where(
+            Booking.confirmation_code.like(f"{prefix}-{date_part}%"),
+            Booking.restaurant_id == restaurant.id,
+        )
+    ) or 0
+    candidate = f"{prefix}-{date_part}{existing_count + 1:02d}"
+    # Collision guard: if the code exists (e.g. concurrent insert), increment
+    if db.scalar(select(Booking.id).where(Booking.confirmation_code == candidate)):
+        candidate = f"{prefix}-{date_part}{existing_count + 2:02d}"
+    return candidate
 
 
 def booking_to_read(booking: Booking) -> BookingRead:
@@ -56,6 +60,12 @@ def booking_to_read(booking: Booking) -> BookingRead:
         created_at=booking.created_at.isoformat(),
         updated_at=booking.updated_at.isoformat(),
     )
+
+
+def booking_to_read_masked(booking: Booking) -> BookingRead:
+    """Like booking_to_read but masks the phone number for list views."""
+    full = booking_to_read(booking)
+    return full.model_copy(update={"customer_phone": mask_phone(full.customer_phone)})
 
 
 def find_turno_name(restaurant: Restaurant, booking_time: time) -> str:
@@ -235,7 +245,7 @@ def list_bookings(
         stmt = stmt.where(Booking.status == status)
     stmt = stmt.order_by(asc(Booking.date), asc(Booking.time)).limit(limit)
     bookings = db.scalars(stmt).all()
-    return [booking_to_read(booking) for booking in bookings]
+    return [booking_to_read_masked(booking) for booking in bookings]
 
 
 def get_booking(db: Session, *, booking_id: str, restaurant_id: str | None = None) -> Booking | None:
@@ -317,7 +327,7 @@ def update_booking(
         booking.customer_phone_encrypted = encrypt_pii(normalized_phone)
         booking.customer_phone_hash = hash_phone(normalized_phone)
         change_log["customer_phone"] = "updated"
-    if changes.special_requests is not None:
+    if "special_requests" in changes.model_fields_set:
         booking.special_requests = changes.special_requests
     if changes.status is not None:
         booking.status = str(changes.status)

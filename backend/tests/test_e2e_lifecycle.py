@@ -362,21 +362,40 @@ class TestSettingsRoundTrip:
         resp = client.patch(
             f"/api/restaurants/{r.id}?sync_agent=false",
             json={
-                "assistant_settings": {
-                    "llm_provider": "openai",
-                    "openai_model": "gpt-5",
-                    "reasoning_effort": "medium",
-                    "response_verbosity": "high",
-                    "custom_greeting": "Buonasera, benvenuti!",
-                    "agent_style_notes": "Formal, use Lei.",
-                },
+                "custom_greeting": "Buonasera, benvenuti!",
+                "agent_style_notes": "Formal, use Lei.",
             },
         )
         assert resp.status_code == 200
-        settings = resp.json()["assistant_settings"]
-        assert settings["openai_model"] == "gpt-5"
-        assert settings["reasoning_effort"] == "medium"
-        assert settings["custom_greeting"] == "Buonasera, benvenuti!"
+        assert resp.json()["custom_greeting"] == "Buonasera, benvenuti!"
+        assert resp.json()["agent_style_notes"] == "Formal, use Lei."
+
+    def test_owner_can_clear_nullable_restaurant_fields(self, client: TestClient, db_session: Session):
+        login(client)
+        r = _restaurant(db_session)
+
+        resp = client.patch(
+            f"/api/restaurants/{r.id}?sync_agent=false",
+            json={
+                "custom_greeting": "Buonasera, benvenuti!",
+                "agent_style_notes": "Formal, use Lei.",
+                "escalation_phone": "+390212345678",
+            },
+        )
+        assert resp.status_code == 200
+
+        resp = client.patch(
+            f"/api/restaurants/{r.id}?sync_agent=false",
+            json={
+                "custom_greeting": None,
+                "agent_style_notes": None,
+                "escalation_phone": None,
+            },
+        )
+        assert resp.status_code == 200
+        assert resp.json()["custom_greeting"] is None
+        assert resp.json()["agent_style_notes"] is None
+        assert resp.json()["escalation_phone"] is None
 
     def test_sending_extra_fields_ignored(self, client: TestClient, db_session: Session):
         """The dashboard sends the entire restaurant object including id,
@@ -430,14 +449,15 @@ class TestEdgeCases:
         )
         assert resp.status_code == 200
 
-        # Cancel again — should not crash. Returns 404 because
-        # the tool endpoint only finds confirmed/modified bookings
+        # Cancel again — returns 200 with success=False because
+        # the booking is already cancelled (not in active statuses)
         resp = client.post(
             "/api/tools/cancel-booking",
             headers=TOOL_HEADERS,
             json={"confirmation_code": code},
         )
-        assert resp.status_code == 404
+        assert resp.status_code == 200
+        assert resp.json()["success"] is False
 
     def test_modify_nonexistent_booking_returns_error(self, client: TestClient):
         resp = client.post(
@@ -445,9 +465,8 @@ class TestEdgeCases:
             headers=TOOL_HEADERS,
             json={"confirmation_code": "NONEXISTENT", "changes": {"party_size": 4}},
         )
-        assert resp.status_code in (200, 404)
-        if resp.status_code == 200:
-            assert resp.json()["success"] is False
+        assert resp.status_code == 200
+        assert resp.json()["success"] is False
 
     def test_booking_on_closure_day_rejected(self, client: TestClient, db_session: Session):
         """Booking on Monday (the seeded closure day) should be rejected."""
@@ -577,3 +596,65 @@ class TestEdgeCases:
         assert resp.status_code == 200
         assert resp.json()["status"] == "confirmed"
         assert resp.json()["special_requests"] == "Allergia noci"
+
+    def test_special_requests_can_be_cleared_via_dashboard_update(
+        self, client: TestClient, db_session: Session
+    ):
+        login(client)
+        r = _restaurant(db_session)
+
+        resp = client.post(
+            "/api/bookings",
+            json={
+                "restaurant_id": r.id,
+                "date": DATE_2,
+                "time": "20:00:00",
+                "party_size": 2,
+                "customer_name": "SR Clear",
+                "customer_phone": "+393405551235",
+                "special_requests": "Tavolo tranquillo",
+            },
+        )
+        assert resp.status_code == 201
+        booking_id = resp.json()["id"]
+        assert resp.json()["special_requests"] == "Tavolo tranquillo"
+
+        resp = client.patch(
+            f"/api/bookings/{booking_id}",
+            json={"special_requests": None},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["special_requests"] is None
+
+    def test_special_requests_can_be_cleared_via_tool_modify(
+        self, client: TestClient, db_session: Session
+    ):
+        r = _restaurant(db_session)
+        resp = client.post(
+            "/api/tools/create-booking",
+            headers=TOOL_HEADERS,
+            json={
+                "restaurant_id": r.id,
+                "date": DATE_1,
+                "time": "20:00:00",
+                "party_size": 2,
+                "customer_name": "Tool Clear",
+                "customer_phone": "+393405551236",
+                "caller_phone": "+393405551236",
+                "special_requests": "Compleanno",
+            },
+        )
+        assert resp.status_code == 200
+        code = resp.json()["confirmation_code"]
+
+        resp = client.post(
+            "/api/tools/modify-booking",
+            headers=TOOL_HEADERS,
+            json={
+                "confirmation_code": code,
+                "changes": {"special_requests": None},
+            },
+        )
+        assert resp.status_code == 200
+        assert resp.json()["success"] is True
+        assert resp.json()["updated_booking"]["special_requests"] is None
