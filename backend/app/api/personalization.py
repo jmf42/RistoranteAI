@@ -18,9 +18,24 @@ router = APIRouter(
 )
 
 
+def _assistant_settings(restaurant: Restaurant) -> dict:
+    settings = getattr(restaurant, "assistant_settings", None)
+    if isinstance(settings, dict):
+        return settings
+    return {
+        "llm_provider": "openai",
+        "openai_model": "gpt-5-mini",
+        "reasoning_effort": "minimal",
+        "response_verbosity": "low",
+        "custom_greeting": getattr(restaurant, "custom_greeting", None),
+        "agent_style_notes": getattr(restaurant, "agent_style_notes", None),
+    }
+
+
 def _greeting_for_restaurant(restaurant: Restaurant) -> str:
-    if restaurant.custom_greeting and restaurant.custom_greeting.strip():
-        return restaurant.custom_greeting.strip()
+    custom_greeting = _assistant_settings(restaurant).get("custom_greeting")
+    if isinstance(custom_greeting, str) and custom_greeting.strip():
+        return custom_greeting.strip()
     local_now = datetime.now(ZoneInfo(restaurant.timezone))
     greeting = "Buongiorno" if local_now.hour < 14 else "Buonasera"
     return f"{greeting}, {restaurant.name}. Come posso aiutarla?"
@@ -30,6 +45,7 @@ def build_twilio_personalization_response(
     restaurant: Restaurant,
     payload: TwilioPersonalizationRequest,
 ) -> TwilioPersonalizationResponse:
+    assistant_settings = _assistant_settings(restaurant)
     turni_description = ", ".join(
         f"{turno['name']}: {turno['start']}-{turno['end']}"
         for turno in restaurant.turni
@@ -50,7 +66,11 @@ def build_twilio_personalization_response(
         "called_number": payload.called_number,
         "call_sid": payload.call_sid,
         "timezone": restaurant.timezone,
-        "agent_style_notes": restaurant.agent_style_notes or "",
+        "llm_provider": assistant_settings.get("llm_provider", "openai"),
+        "openai_model": assistant_settings.get("openai_model", "gpt-5-mini"),
+        "reasoning_effort": assistant_settings.get("reasoning_effort", "minimal"),
+        "response_verbosity": assistant_settings.get("response_verbosity", "low"),
+        "agent_style_notes": assistant_settings.get("agent_style_notes") or "",
         "greeting": _greeting_for_restaurant(restaurant),
     }
     return TwilioPersonalizationResponse(
