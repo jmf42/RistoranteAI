@@ -73,6 +73,33 @@ What it verifies:
 - calls export
 - booking events endpoint
 
+## Telephony Check
+
+The fastest backend-only telephony sanity check is:
+
+```bash
+curl -i -X POST https://<backend-domain>/api/twilio/inbound \
+  --data 'From=%2B41779802809&To=%2B41225394205&CallSid=CA_test_inbound'
+```
+
+Interpret the result like this:
+
+- success path:
+  - HTTP `200`
+  - XML response
+  - contains ElevenLabs `<Connect><Stream .../></Connect>` TwiML
+- fallback path:
+  - HTTP `200`
+  - XML response
+  - contains the Italian apology / transfer flow from `/api/twilio/voice-fallback`
+
+If inbound returns fallback unexpectedly, check:
+
+- `ELEVENLABS_API_KEY`
+- Twilio number routing
+- restaurant `twilio_phone`
+- restaurant `elevenlabs_agent_id`
+
 ## Important Cloud Run Note
 
 On default Cloud Run `*.run.app` domains, `/healthz` is intercepted before the request reaches the FastAPI app. Use `/health` and `/readyz` for public deployment checks.

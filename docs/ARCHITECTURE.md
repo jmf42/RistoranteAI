@@ -13,11 +13,14 @@ The product is intentionally split into two applications plus one managed databa
 
 ## Core Runtime Flow
 
-1. A caller reaches the restaurant phone line.
-2. ElevenLabs handles the live voice interaction.
-3. ElevenLabs calls backend tool endpoints for availability, booking creation, lookup, modification, and cancellation.
-4. The backend applies booking rules and capacity logic against the database.
-5. The dashboard reads the same backend state, so operators see the same truth the AI acted on.
+1. A caller reaches the restaurant phone line in Twilio.
+2. Twilio sends the inbound webhook to the backend `POST /api/twilio/inbound`.
+3. The backend resolves the restaurant from the called number, builds the runtime personalization payload, and calls ElevenLabs `register_call`.
+4. The backend returns ElevenLabs-generated TwiML back to Twilio so the call is connected to the ElevenLabs runtime.
+5. ElevenLabs handles the live voice interaction.
+6. ElevenLabs calls backend tool endpoints for availability, booking creation, lookup, modification, and cancellation.
+7. The backend applies booking rules and capacity logic against the database.
+8. The dashboard reads the same backend state, so operators see the same truth the AI acted on.
 
 ## Backend Layers
 
@@ -30,7 +33,7 @@ The product is intentionally split into two applications plus one managed databa
 - `app/core/`
   environment settings, DB engine/session handling, security helpers, request logging, and rate limiting.
 - `app/integrations/elevenlabs.py`
-  vendor boundary for transcript retrieval, agent sync checks, and webhook verification support.
+  vendor boundary for transcript retrieval, agent sync checks, Twilio call registration, and webhook verification support.
 
 ## Frontend Layers
 
@@ -73,3 +76,17 @@ The backend applies rate limiting with stricter buckets for auth, tools, and web
 - database on Supabase Postgres
 
 Read `docs/CLOUD_RUN_DEPLOY.md` and `docs/PRODUCTION_STATE.md` for the current live state.
+
+## Telephony Safety Principle
+
+The main supported telephony entrypoint is now backend-owned.
+
+Use:
+
+- Twilio inbound voice → backend `/api/twilio/inbound`
+
+Keep:
+
+- backend `/api/twilio/voice-fallback` only as failure handling
+
+Do not point Twilio directly at the legacy ElevenLabs `convai/twilio/inbound_call` URL. That path returned `404` during live debugging and was the source of the English “application error” failure heard by callers.

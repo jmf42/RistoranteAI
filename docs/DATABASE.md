@@ -17,11 +17,11 @@ This app does not use Supabase Auth as the system of record.
 
 ## Current Verified State
 
-As of `2026-03-25`:
+As of `2026-03-28`:
 
 - provider: Supabase
 - verified access path: Supabase pooler URL
-- live schema version: `0004 (head)`
+- live schema version currently reports `0005 (head)`
 
 See `docs/PRODUCTION_STATE.md` for the date-stamped live environment snapshot.
 
@@ -38,7 +38,7 @@ Restaurant operational profile:
 - opening hours and closures
 - `turni`
 - booking rules
-- assistant settings
+- AI/telephony configuration
 - escalation phone
 - active/inactive state
 
@@ -51,6 +51,7 @@ Application auth users:
 - role
 - password hash
 - active state
+- optional `token_valid_after` for token/session invalidation
 - legacy optional `restaurant_id`
 
 ### `user_restaurants`
@@ -106,6 +107,15 @@ Call summary records:
   backfill customers and booking events from historical bookings
 - `0004`
   `call_logs.booking_id` index for production query efficiency
+- `0005`
+  later workspace migration introducing `users.token_valid_after` and a restaurant AI-settings shape change
+
+The important lesson is not just the migration number. The important lesson is that this area has already drifted once between model, migration, and docs. Before editing restaurant AI settings or auth token invalidation, verify:
+
+1. latest migration file
+2. current ORM model
+3. live Alembic version
+4. actual API payload shape used by the dashboard
 
 ## Production Rules
 
@@ -143,3 +153,4 @@ Important:
 - the live Cloud Run deployment currently points at Supabase through the pooler
 - backups and PITR are managed at the Supabase platform level, not from this repo
 - this repo can verify migrations and runtime behavior, but backup policy still requires Supabase-side confirmation
+- the database itself is currently healthy; recent live-call failures were caused by telephony routing, not by DB connectivity

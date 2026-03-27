@@ -12,16 +12,17 @@ The product has three connected surfaces:
 
 The stack is live on Google Cloud Run and Supabase:
 
-- frontend: `https://ristorante-ai-dashboard-534989834839.europe-west1.run.app`
-- backend: `https://ristorante-ai-api-534989834839.europe-west1.run.app`
-- database: Supabase Postgres, schema `0004 (head)`
+- frontend: `https://ristorante-ai-dashboard-jc7mvuujwq-ew.a.run.app`
+- backend: `https://ristorante-ai-api-jc7mvuujwq-ew.a.run.app`
+- database: Supabase Postgres, schema currently reporting `0005 (head)`
 
 Important:
 
 - the live environment is operational
 - it is still best described as `live staging`
 - the current Supabase project still contains demo/staging data
-- Twilio and ElevenLabs real production telephony are not fully wired yet
+- the backend-owned Twilio inbound path is now understood and documented
+- actual PSTN call behavior should still be re-verified after Twilio console changes
 
 Read `docs/PRODUCTION_STATE.md` before making any production claims.
 
@@ -88,6 +89,7 @@ Read in this order if you are new:
 4. `docs/DATABASE.md`
 5. `docs/CLOUD_RUN_DEPLOY.md`
 6. `docs/SUPABASE_PRODUCTION.md`
+7. `docs/TELEPHONY_FLOW.md`
 
 Then use the focused docs as needed:
 
@@ -97,6 +99,7 @@ Then use the focused docs as needed:
 - `docs/DDR_REVIEW.md`
 - `docs/ELEVENLABS_CONFIG.md`
 - `docs/TWILIO_SETUP.md`
+- `docs/TELEPHONY_FLOW.md`
 - `docs/SYSTEM_PROMPT.md`
 - `docs/TOOL_DEFINITIONS.md`
 

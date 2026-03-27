@@ -4,7 +4,7 @@ This file is a date-stamped snapshot of the currently deployed environment.
 
 ## Snapshot Date
 
-`2026-03-25`
+`2026-03-28`
 
 ## Current Deployment
 
@@ -16,11 +16,11 @@ Google Cloud:
 Cloud Run services:
 
 - backend service: `ristorante-ai-api`
-- backend latest ready revision: `ristorante-ai-api-00005-vhx`
-- backend URL: `https://ristorante-ai-api-534989834839.europe-west1.run.app`
+- backend latest ready revision: `ristorante-ai-api-00016-787`
+- backend URL: `https://ristorante-ai-api-jc7mvuujwq-ew.a.run.app`
 - frontend service: `ristorante-ai-dashboard`
-- frontend latest ready revision: `ristorante-ai-dashboard-00003-xmq`
-- frontend URL: `https://ristorante-ai-dashboard-534989834839.europe-west1.run.app`
+- frontend latest ready revision: `ristorante-ai-dashboard-00006-zh7`
+- frontend URL: `https://ristorante-ai-dashboard-jc7mvuujwq-ew.a.run.app`
 
 ## Current Database
 
@@ -31,7 +31,7 @@ Provider:
 Operational status:
 
 - reachable through the Supabase pooler
-- schema version verified at `0004 (head)`
+- schema version currently reports `0005 (head)`
 
 Current live/staging table counts at verification time:
 
@@ -62,6 +62,9 @@ Verified during the deployment and follow-up checks:
 - browser-origin login/session flow from the deployed frontend origin
 - frontend dashboard root rendering after authentication
 - repeatable smoke test in `scripts/production_smoke_test.py`
+- Twilio-style POST to `POST /api/twilio/inbound`
+- valid ElevenLabs `<Connect><Stream .../></Connect>` TwiML returned from the backend inbound route
+- backend binding of `ELEVENLABS_API_KEY` from Google Secret Manager
 
 ## What Is Live But Not Final-Production
 
@@ -72,8 +75,8 @@ Reasons:
 - Supabase still contains demo/staging data
 - default Cloud Run domains are still in use
 - custom domains are not configured
-- Twilio and ElevenLabs production credentials are not part of this verified state
-- telephony end-to-end live call flow is not verified here
+- a real human PSTN call should still be re-verified after any Twilio console change
+- telephony behavior still depends on Twilio console routing staying pointed at the backend inbound route
 
 ## Current Runtime Secrets Model
 
@@ -87,6 +90,7 @@ Current secret names:
 - `elevenlabs-tool-secret`
 - `elevenlabs-personalization-secret`
 - `elevenlabs-webhook-secret`
+- `elevenlabs-api-key`
 
 ## Current Auth Reality
 
@@ -107,6 +111,8 @@ These have already broken once and should not be forgotten:
 4. On default Cloud Run `*.run.app` domains, `/healthz` is intercepted before the request reaches the service. Use `/health` and `/readyz` for public checks.
 5. Historical data needed backfill once `customers` and `booking_events` were introduced.
 6. `ALLOWED_ORIGINS` must match the actual deployed frontend origin.
+7. Do not point Twilio to `https://api.elevenlabs.io/v1/convai/twilio/inbound_call`; that path returned `404` during live debugging.
+8. The supported live voice path is Twilio `A call comes in` → backend `POST /api/twilio/inbound` → ElevenLabs `register_call`.
 
 ## What Must Happen Before Calling This True Production
 
@@ -116,7 +122,7 @@ These have already broken once and should not be forgotten:
 4. add custom domains
 5. wire real Twilio credentials/config
 6. wire real ElevenLabs credentials/config
-7. verify live inbound call flow end to end
+7. verify real PSTN inbound call flow end to end after Twilio console routing is confirmed
 
 ## Recommended Language For Future Docs Or Stakeholders
 

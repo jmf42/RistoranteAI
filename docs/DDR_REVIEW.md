@@ -43,7 +43,7 @@ The repo now uses a personalization endpoint to inject runtime call context clea
 
 The earlier prototype relied too much on auto-created schema behavior.
 
-The repo now has production schema control through Alembic and the verified live schema is at `0004 (head)`.
+The repo now has production schema control through Alembic and the live schema currently reports `0005 (head)`.
 
 ### 5. Production Hardening Was Added
 
@@ -71,7 +71,7 @@ Compared to the original DDR, the current implementation now includes:
 - current live Supabase still contains staging/demo data
 - custom domains are not configured yet
 - Sentry is code-ready but still needs a real DSN
-- Twilio and ElevenLabs live production telephony are not fully wired end to end
+- the backend-owned Twilio → ElevenLabs route is now understood and documented, but real PSTN behavior should still be re-verified after any console change
 - password reset, invitations, and notification workflows are still missing
 
 So the repo is now much closer to a production-shaped system than the original DDR described, but it still needs external production setup before public launch.

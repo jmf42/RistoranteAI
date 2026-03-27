@@ -23,13 +23,18 @@ The repo covers three practical surfaces:
 
 ## Current Ground Truth
 
-As of `2026-03-25`:
+As of `2026-03-28`:
 
 - backend is deployed on Google Cloud Run
 - dashboard is deployed on Google Cloud Run
 - database is Supabase Postgres
-- live schema is Alembic `0004 (head)`
+- live schema version currently reports `0005 (head)`
 - the live environment is operational but still staging-grade because it contains demo data and uses default Cloud Run domains
+- the Twilio inbound path is backend-owned at `POST /api/twilio/inbound`
+- the Twilio fallback path is `POST /api/twilio/voice-fallback`
+- the old manual Twilio target `https://api.elevenlabs.io/v1/convai/twilio/inbound_call` is a dead path and must not be reused
+- the backend now has `ELEVENLABS_API_KEY` bound from Google Secret Manager
+- a Twilio-style POST to `/api/twilio/inbound` now returns valid ElevenLabs `<Connect><Stream .../></Connect>` TwiML
 
 Do not describe the current environment as final production unless `docs/PRODUCTION_STATE.md` says that is true.
 
@@ -45,6 +50,7 @@ The current codebase already includes:
 - bookings export and calls export
 - booking events history endpoint and dashboard history view
 - production smoke testing
+- server-side Twilio inbound call registration with ElevenLabs `register_call`
 
 ## Repo Shape
 
@@ -91,6 +97,8 @@ The current codebase already includes:
 - Preserve the seeded local demo path unless replacing it with an equally runnable local bootstrap.
 - Use Alembic for schema changes.
 - Keep ElevenLabs server tools on shared-secret header auth and post-call webhooks on signature verification.
+- Keep Twilio inbound voice routing on `POST /api/twilio/inbound`, not on the dead legacy ElevenLabs `convai/twilio/inbound_call` URL.
+- Keep Twilio emergency fallback on `POST /api/twilio/voice-fallback`.
 - Treat the current live environment as staging unless the documentation is deliberately updated to say otherwise.
 
 ## Deployment Reality That Matters
@@ -99,6 +107,7 @@ The current codebase already includes:
 - Cloud Run source deploy will use `Dockerfile` if present
 - if a Cloud Run service previously used buildpacks, switching to Dockerfile-based source deploys requires `--clear-base-image`
 - on Cloud Run default `*.run.app` domains, `/healthz` is intercepted before reaching the app; use `/health` and `/readyz` for public checks
+- there has already been schema/API drift in this workspace around restaurant AI settings; before changing those fields, verify the live Alembic version, latest migration file, and current ORM model together
 
 ## Verification Standard
 

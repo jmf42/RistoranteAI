@@ -29,6 +29,12 @@ postgresql+psycopg://postgres.<project-ref>:<password>@aws-1-eu-west-1.pooler.su
 
 Use the pooler as the default unless you have explicitly verified that the direct host works in the target runtime.
 
+Current live secret-backed connection shape:
+
+```env
+postgresql+psycopg://postgres.<project-ref>:<password>@aws-1-eu-west-1.pooler.supabase.com:6543/postgres?sslmode=require
+```
+
 ## Production Environment Rules
 
 ```env
@@ -71,6 +77,12 @@ cd backend
 DATABASE_URL='<supabase-pooler-url>' uv run alembic current
 ```
 
+Current live Alembic version was last verified as:
+
+- `0005 (head)`
+
+Do not trust older docs blindly. Verify with `alembic current` before making deployment claims.
+
 ## Backup And Recovery Reality
 
 Backups and PITR are controlled on the Supabase side, not in this repository.
@@ -92,3 +104,10 @@ Keep separate Supabase projects for:
 - production
 
 The current verified environment still contains demo/staging data, so it should not be described as final production data without an intentional cleanup or a fresh project.
+
+## Learned Operational Reality
+
+- Supabase is working correctly as the live database.
+- The database is not the current telephony bottleneck.
+- The most important recent production issues were in Twilio/ElevenLabs routing, not in Postgres connectivity.
+- The app currently uses the Supabase project-level Postgres user. That is workable, but a narrower app-specific DB role would be cleaner for stricter long-term production hardening.
