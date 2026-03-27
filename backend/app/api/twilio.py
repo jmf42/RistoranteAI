@@ -8,8 +8,14 @@ from sqlalchemy.orm import Session
 from starlette.responses import Response
 
 from app.api.deps import get_db
+from app.api.personalization import (
+    build_twilio_personalization_response,
+    resolve_restaurant_for_inbound_call,
+)
 from app.core.observability import json_log
+from app.integrations.elevenlabs import elevenlabs_service
 from app.models import Restaurant
+from app.schemas.tools import TwilioPersonalizationRequest
 
 router = APIRouter(prefix="/twilio", tags=["twilio"])
 
@@ -19,6 +25,73 @@ def _twiml_response(body: str) -> Response:
         content=f'<?xml version="1.0" encoding="UTF-8"?><Response>{body}</Response>',
         media_type="application/xml",
     )
+
+
+@router.post("/inbound")
+async def inbound_call(request: Request, db: Session = Depends(get_db)) -> Response:
+    form = await request.form()
+    from_number = str(form.get("From") or "").strip()
+    to_number = str(form.get("To") or form.get("Called") or "").strip()
+    call_sid = str(form.get("CallSid") or "").strip()
+
+    payload = TwilioPersonalizationRequest(
+        caller_id=from_number,
+        called_number=to_number,
+        call_sid=call_sid or "missing-call-sid",
+        agent_id="",
+    )
+
+    try:
+        restaurant = resolve_restaurant_for_inbound_call(db, payload)
+    except Exception:  # noqa: BLE001
+        json_log(
+            "app.twilio",
+            {
+                "event": "twilio_inbound_restaurant_not_found",
+                "request_id": getattr(request.state, "request_id", None),
+                "from_number": from_number or None,
+                "to_number": to_number or None,
+            },
+        )
+        return await voice_fallback(request, db)
+
+    personalization = build_twilio_personalization_response(
+        restaurant,
+        payload.model_copy(update={"agent_id": restaurant.elevenlabs_agent_id or ""}),
+    )
+
+    try:
+        twiml = elevenlabs_service.register_twilio_call(
+            agent_id=restaurant.elevenlabs_agent_id or "",
+            from_number=from_number,
+            to_number=to_number,
+            conversation_initiation_client_data=personalization.model_dump(mode="python"),
+            direction="inbound",
+        )
+    except Exception as exc:  # noqa: BLE001
+        json_log(
+            "app.twilio",
+            {
+                "event": "twilio_inbound_register_call_failed",
+                "request_id": getattr(request.state, "request_id", None),
+                "restaurant_id": restaurant.id,
+                "from_number": from_number or None,
+                "to_number": to_number or None,
+                "error": str(exc),
+            },
+        )
+        return await voice_fallback(request, db)
+
+    json_log(
+        "app.twilio",
+        {
+            "event": "twilio_inbound_register_call_success",
+            "request_id": getattr(request.state, "request_id", None),
+            "restaurant_id": restaurant.id,
+            "call_sid": call_sid or None,
+        },
+    )
+    return Response(content=twiml, media_type="application/xml")
 
 
 @router.post("/voice-fallback")

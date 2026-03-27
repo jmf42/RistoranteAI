@@ -129,6 +129,25 @@ class ElevenLabsService:
             message=f"ElevenLabs agent synced successfully: {', '.join(changes)} updated.",
         )
 
+    def register_twilio_call(
+        self,
+        *,
+        agent_id: str,
+        from_number: str,
+        to_number: str,
+        conversation_initiation_client_data: dict[str, Any],
+        direction: str = "inbound",
+    ) -> str:
+        if not settings.elevenlabs_api_key:
+            raise RuntimeError("ELEVENLABS_API_KEY is not configured")
+        return self._client.conversational_ai.twilio.register_call(
+            agent_id=agent_id,
+            from_number=from_number,
+            to_number=to_number,
+            direction=direction,
+            conversation_initiation_client_data=conversation_initiation_client_data,
+        )
+
     def fetch_conversation_transcript(self, conversation_id: str) -> dict | None:
         if not settings.elevenlabs_api_key:
             return None

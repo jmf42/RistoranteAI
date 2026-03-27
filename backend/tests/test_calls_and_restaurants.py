@@ -105,24 +105,20 @@ def test_owner_can_update_assistant_settings(client, db_session, monkeypatch):
     response = client.patch(
         f"/api/restaurants/{restaurant.id}",
         json={
-            "assistant_settings": {
-                "custom_greeting": "Buonasera, risponde il desk prenotazioni.",
-                "agent_style_notes": "Elegant and direct."
-            }
+            "custom_greeting": "Buonasera, risponde il desk prenotazioni.",
+            "agent_style_notes": "Elegant and direct.",
         },
     )
     assert response.status_code == 200
     payload = response.json()
-    assert payload["assistant_settings"]["custom_greeting"] == "Buonasera, risponde il desk prenotazioni."
-    assert payload["assistant_settings"]["agent_style_notes"] == "Elegant and direct."
+    assert payload["custom_greeting"] == "Buonasera, risponde il desk prenotazioni."
+    assert payload["agent_style_notes"] == "Elegant and direct."
 
 
 def test_personalization_includes_assistant_settings(client, db_session):
     restaurant = db_session.scalar(select(Restaurant).where(Restaurant.slug == "trattoria-da-mario"))
-    restaurant.assistant_settings = {
-        "custom_greeting": "Buonasera, benvenuti da Mario.",
-        "agent_style_notes": "Elegant and direct.",
-    }
+    restaurant.custom_greeting = "Buonasera, benvenuti da Mario."
+    restaurant.agent_style_notes = "Elegant and direct."
     db_session.add(restaurant)
     db_session.commit()
 
@@ -181,10 +177,8 @@ def test_operator_duplicate_restaurant_slug_returns_conflict(client):
                 "max_advance_days": 30,
                 "min_lead_hours": 2,
             },
-            "assistant_settings": {
-                "custom_greeting": None,
-                "agent_style_notes": None,
-            },
+            "custom_greeting": None,
+            "agent_style_notes": None,
             "is_active": True,
         },
     )
@@ -247,7 +241,8 @@ def test_bookings_list_handles_legacy_unreadable_pii_without_crashing(client, db
     assert response.status_code == 200
     payload = response.json()
     assert payload[0]["customer_name"] == "Dato non disponibile"
-    assert payload[0]["customer_phone"] == "Dato non disponibile"
+    # Phone is masked in list views; fallback text has no digits → "****"
+    assert payload[0]["customer_phone"] == "****"
 
 
 def test_twilio_voice_fallback_returns_italian_dial_flow_for_known_restaurant(client, db_session):
@@ -282,3 +277,67 @@ def test_twilio_voice_fallback_hangs_up_for_unknown_restaurant(client):
     body = response.text
     assert "La invitiamo a richiamare tra qualche minuto." in body
     assert "<Hangup/>" in body
+
+
+def test_twilio_inbound_registers_real_ai_call(client, db_session, monkeypatch):
+    restaurant = db_session.scalar(select(Restaurant).where(Restaurant.slug == "trattoria-da-mario"))
+    restaurant.twilio_phone = "+41225394205"
+    restaurant.elevenlabs_agent_id = "agent_9801kmkb15jhfnn8m2k99kqb3wps"
+    restaurant.custom_greeting = "Buonasera, test Supabase."
+    restaurant.agent_style_notes = "Supabase QA run."
+    db_session.add(restaurant)
+    db_session.commit()
+
+    captured = {}
+
+    def fake_register_twilio_call(**kwargs):
+        captured.update(kwargs)
+        return "<?xml version=\"1.0\" encoding=\"UTF-8\"?><Response><Connect /></Response>"
+
+    monkeypatch.setattr(elevenlabs_service, "register_twilio_call", fake_register_twilio_call)
+
+    response = client.post(
+        "/api/twilio/inbound",
+        data={
+            "From": "+41779802809",
+            "To": "+41225394205",
+            "CallSid": "CA_test_real_ai",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("application/xml")
+    assert "<Connect" in response.text
+    assert captured["agent_id"] == "agent_9801kmkb15jhfnn8m2k99kqb3wps"
+    assert captured["from_number"] == "+41779802809"
+    assert captured["to_number"] == "+41225394205"
+    client_data = captured["conversation_initiation_client_data"]
+    assert client_data["type"] == "conversation_initiation_client_data"
+    assert client_data["dynamic_variables"]["restaurant_name"] == "Trattoria da Mario"
+    assert "greeting" in client_data["dynamic_variables"]
+
+
+def test_twilio_inbound_falls_back_when_register_call_fails(client, db_session, monkeypatch):
+    restaurant = db_session.scalar(select(Restaurant).where(Restaurant.slug == "trattoria-da-mario"))
+    restaurant.twilio_phone = "+41225394205"
+    restaurant.elevenlabs_agent_id = "agent_9801kmkb15jhfnn8m2k99kqb3wps"
+    db_session.add(restaurant)
+    db_session.commit()
+
+    monkeypatch.setattr(
+        elevenlabs_service,
+        "register_twilio_call",
+        lambda **_: (_ for _ in ()).throw(RuntimeError("boom")),
+    )
+
+    response = client.post(
+        "/api/twilio/inbound",
+        data={
+            "From": "+41779802809",
+            "To": "+41225394205",
+            "CallSid": "CA_test_failover",
+        },
+    )
+
+    assert response.status_code == 200
+    assert "Ci scusi, stiamo avendo un problema tecnico" in response.text
