@@ -18,8 +18,9 @@ Read these in order:
 
 1. `docs/LLM_GUIDE.md`
 2. `docs/PRODUCTION_STATE.md`
-3. `docs/DDR_REVIEW.md`
-4. `docs/CLOUD_RUN_DEPLOY.md`
+3. `docs/ARCHITECTURE.md`
+4. `docs/OPERATIONS.md`
+5. `docs/INTEGRATIONS.md`
 
 Then verify the repo state:
 

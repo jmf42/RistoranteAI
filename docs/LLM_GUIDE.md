@@ -7,9 +7,8 @@ Read this first. Then read:
 1. `docs/PRODUCTION_STATE.md`
 2. `docs/ARCHITECTURE.md`
 3. `docs/DATABASE.md`
-4. `docs/CLOUD_RUN_DEPLOY.md`
-5. `docs/SUPABASE_PRODUCTION.md`
-6. `docs/DDR_REVIEW.md`
+4. `docs/OPERATIONS.md`
+5. `docs/INTEGRATIONS.md`
 
 ## What The Product Is
 

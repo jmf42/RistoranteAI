@@ -51,8 +51,8 @@ docker compose up db
 
 For a real managed database, use Supabase and follow:
 
-- `docs/SUPABASE_PRODUCTION.md`
-- `docs/CLOUD_RUN_DEPLOY.md`
+- `docs/OPERATIONS.md`
+- `docs/INTEGRATIONS.md`
 
 Important production differences:
 

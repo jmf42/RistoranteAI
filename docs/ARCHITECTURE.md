@@ -75,7 +75,7 @@ The backend applies rate limiting with stricter buckets for auth, tools, and web
 - secrets in Google Secret Manager
 - database on Supabase Postgres
 
-Read `docs/CLOUD_RUN_DEPLOY.md` and `docs/PRODUCTION_STATE.md` for the current live state.
+Read `docs/OPERATIONS.md` and `docs/PRODUCTION_STATE.md` for the current live state.
 
 ## Telephony Safety Principle
 

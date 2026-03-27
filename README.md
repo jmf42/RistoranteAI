@@ -87,21 +87,15 @@ Read in this order if you are new:
 2. `docs/PRODUCTION_STATE.md`
 3. `docs/ARCHITECTURE.md`
 4. `docs/DATABASE.md`
-5. `docs/CLOUD_RUN_DEPLOY.md`
-6. `docs/SUPABASE_PRODUCTION.md`
-7. `docs/TELEPHONY_FLOW.md`
+5. `docs/OPERATIONS.md`
+6. `docs/INTEGRATIONS.md`
 
 Then use the focused docs as needed:
 
 - `docs/SETUP.md`
-- `docs/TESTING.md`
-- `docs/TROUBLESHOOTING.md`
-- `docs/DDR_REVIEW.md`
-- `docs/ELEVENLABS_CONFIG.md`
-- `docs/TWILIO_SETUP.md`
-- `docs/TELEPHONY_FLOW.md`
+- `docs/OPERATIONS.md`
+- `docs/INTEGRATIONS.md`
 - `docs/SYSTEM_PROMPT.md`
-- `docs/TOOL_DEFINITIONS.md`
 
 ## Deployment Shape
 
@@ -112,7 +106,7 @@ Current verified deployment path:
 - database on Supabase Postgres
 - secrets in Google Secret Manager
 
-The verified deployment details are in `docs/CLOUD_RUN_DEPLOY.md`.
+The verified deployment and operational details are in `docs/OPERATIONS.md`.
 
 ## What Is Still Needed Before Public Production
 
