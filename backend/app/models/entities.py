@@ -39,17 +39,6 @@ def default_booking_rules() -> dict[str, int]:
     }
 
 
-def default_assistant_settings() -> dict[str, Any]:
-    return {
-        "llm_provider": "openai",
-        "openai_model": "gpt-5-mini",
-        "reasoning_effort": "minimal",
-        "response_verbosity": "low",
-        "custom_greeting": None,
-        "agent_style_notes": "Warm, concise, premium Italian hospitality tone.",
-    }
-
-
 class Restaurant(Base):
     __tablename__ = "restaurants"
 
@@ -65,7 +54,10 @@ class Restaurant(Base):
     closure_dates: Mapped[list[str]] = mapped_column(JSON, default=list)
     turni: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=default_turni)
     booking_rules: Mapped[dict[str, Any]] = mapped_column(JSON, default=default_booking_rules)
-    assistant_settings: Mapped[dict[str, Any]] = mapped_column(JSON, default=default_assistant_settings)
+    custom_greeting: Mapped[str | None] = mapped_column(Text, nullable=True)
+    agent_style_notes: Mapped[str | None] = mapped_column(
+        Text, nullable=True, default="Warm, concise, premium Italian hospitality tone."
+    )
     escalation_phone: Mapped[str | None] = mapped_column(String(30), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
@@ -91,6 +83,7 @@ class User(Base):
         String(36), ForeignKey("restaurants.id"), nullable=True
     )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    token_valid_after: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow
@@ -142,6 +135,7 @@ class CallLog(Base):
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
     duration_seconds: Mapped[int] = mapped_column(Integer, default=0)
     outcome: Mapped[str] = mapped_column(String(40), default="info_provided", index=True)
+    call_status: Mapped[str] = mapped_column(String(20), default="unknown", index=True)
     booking_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("bookings.id"), nullable=True, index=True)
     summary: Mapped[str] = mapped_column(Text, default="")
     transcript_preview: Mapped[str | None] = mapped_column(Text, nullable=True)

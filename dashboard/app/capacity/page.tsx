@@ -39,7 +39,7 @@ export default function CapacityPage() {
       title="Capienza"
       subtitle="Leggi l’occupazione per turno, capisci quanto margine resta e anticipa le fasce che rischiano di saturarsi."
       actions={
-        <div className="flex items-center gap-2">
+        <div className="flex w-full items-center gap-2 sm:w-auto">
           <button
             type="button"
             onClick={() => {
@@ -55,7 +55,7 @@ export default function CapacityPage() {
             type="date"
             value={selectedDate}
             onChange={(event) => setSelectedDate(event.target.value)}
-            className="rounded-2xl border border-stone bg-ivory/80 px-4 py-3 text-sm text-ink outline-none transition focus:border-gold"
+            className="min-w-0 flex-1 rounded-2xl border border-stone bg-ivory/80 px-4 py-3 text-sm text-ink outline-none transition focus:border-gold sm:min-w-[210px] sm:flex-none"
           />
           <button
             type="button"

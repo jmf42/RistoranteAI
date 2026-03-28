@@ -140,7 +140,7 @@ export default function AdminPage() {
                 key={restaurant.id}
                 className="rounded-[1.45rem] border border-stone/80 bg-white/80 p-4"
               >
-                <div className="flex items-start justify-between gap-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div>
                     <p className="font-display text-2xl text-ink">{restaurant.name}</p>
                     <p className="mt-2 text-sm text-ink/60">{restaurant.twilio_phone ?? "Numero non assegnato"}</p>
@@ -155,7 +155,7 @@ export default function AdminPage() {
                     {restaurant.is_active ? "attivo" : "pausa"}
                   </span>
                 </div>
-                <div className="mt-4 grid gap-3 md:grid-cols-3">
+                <div className="mt-4 grid gap-3 sm:grid-cols-3">
                   <div className="rounded-2xl bg-ivory/70 p-3">
                     <p className="text-xs uppercase tracking-[0.22em] text-ink/45">Chiamate oggi</p>
                     <p className="mt-2 font-display text-3xl text-ink">{restaurant.calls_today}</p>
@@ -190,40 +190,71 @@ export default function AdminPage() {
           </div>
         </SectionCard>
 
-        <SectionCard title="Nuovo ristorante" kicker="Onboarding rapido">
-          <div className="grid gap-4">
-            {[
-              ["name", "Nome", ""],
-              ["slug", "Slug (solo lettere minuscole, numeri e trattini)", "^[a-z0-9]+(?:-[a-z0-9]+)*$"],
-              ["address", "Indirizzo", ""],
-              ["timezone", "Timezone", ""],
-              ["twilio_phone", "Numero Twilio", ""],
-              ["elevenlabs_agent_id", "Agent id", ""],
-              ["escalation_phone", "Numero escalation", ""]
-            ].map(([field, label, pattern]) => (
-              <label key={field} className="grid gap-2 text-sm text-ink/65">
-                {label}
-                <input
-                  className="rounded-2xl border border-stone bg-ivory/80 px-4 py-3 text-ink outline-none transition focus:border-gold"
-                  value={(form as Record<string, string>)[field]}
-                  pattern={pattern || undefined}
-                  placeholder={field === "slug" ? "trattoria-da-mario" : undefined}
-                  onChange={(event) =>
-                    setForm((current) => ({ ...current, [field]: event.target.value }))
-                  }
-                />
-              </label>
-            ))}
-            <button
-              type="button"
-              onClick={() => void createRestaurant()}
-              disabled={saving || !form.name || !form.slug || !form.address}
-              className="rounded-2xl bg-ink px-5 py-3 text-sm font-semibold uppercase tracking-[0.26em] text-ivory transition hover:bg-night disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {saving ? "Creo..." : "Crea tenant"}
-            </button>
-          </div>
-        </SectionCard>
+        <div className="space-y-6">
+          <SectionCard title="Nuovo ristorante" kicker="Onboarding rapido">
+            <div className="grid gap-4">
+              {[
+                ["name", "Nome", ""],
+                ["slug", "Slug (solo lettere minuscole, numeri e trattini)", "^[a-z0-9]+(?:-[a-z0-9]+)*$"],
+                ["address", "Indirizzo", ""],
+                ["timezone", "Timezone", ""],
+                ["twilio_phone", "Numero Twilio", ""],
+                ["elevenlabs_agent_id", "Agent id", ""],
+                ["escalation_phone", "Numero escalation", ""]
+              ].map(([field, label, pattern]) => (
+                <label key={field} className="grid gap-2 text-sm text-ink/65">
+                  {label}
+                  <input
+                    className="rounded-2xl border border-stone bg-ivory/80 px-4 py-3 text-ink outline-none transition focus:border-gold"
+                    value={(form as Record<string, string>)[field]}
+                    pattern={pattern || undefined}
+                    placeholder={field === "slug" ? "trattoria-da-mario" : undefined}
+                    onChange={(event) =>
+                      setForm((current) => ({ ...current, [field]: event.target.value }))
+                    }
+                  />
+                </label>
+              ))}
+              <button
+                type="button"
+                onClick={() => void createRestaurant()}
+                disabled={saving || !form.name || !form.slug || !form.address}
+                className="rounded-2xl bg-ink px-5 py-3 text-sm font-semibold uppercase tracking-[0.26em] text-ivory transition hover:bg-night disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {saving ? "Creo..." : "Crea tenant"}
+              </button>
+            </div>
+          </SectionCard>
+
+          <SectionCard title="Checklist onboarding" kicker="Setup guide">
+            <ol className="list-inside list-decimal space-y-3 text-sm leading-6 text-ink/65">
+              <li>
+                <strong className="text-ink/80">Crea il tenant qui sopra</strong> &mdash; inserisci nome, slug e
+                indirizzo. Twilio e ElevenLabs si possono aggiungere dopo.
+              </li>
+              <li>
+                <strong className="text-ink/80">Configura un agente ElevenLabs</strong> &mdash; crea un nuovo agente
+                nella console ElevenLabs e copia l&apos;agent id nel campo qui sopra.
+              </li>
+              <li>
+                <strong className="text-ink/80">Acquista un numero Twilio</strong> &mdash; associa il numero
+                all&apos;agente ElevenLabs e inseriscilo nel campo Numero Twilio.
+              </li>
+              <li>
+                <strong className="text-ink/80">Personalizza turni e orari</strong> &mdash; vai in Impostazioni per
+                configurare turni, capienza, chiusure settimanali e regole prenotazione.
+              </li>
+              <li>
+                <strong className="text-ink/80">Crea un account owner</strong> &mdash; assegna un utente owner al
+                ristorante per permettere al gestore di accedere alla dashboard.
+              </li>
+              <li>
+                <strong className="text-ink/80">Testa una chiamata</strong> &mdash; chiama il numero Twilio e verifica
+                che l&apos;agente risponda con il greeting corretto e possa prenotare.
+              </li>
+            </ol>
+          </SectionCard>
+        </div>
       </div>
     </DashboardShell>
   );

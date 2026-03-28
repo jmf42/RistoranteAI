@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.database import SessionLocal
+from app.core.observability import json_log
 from app.core.security import decode_access_token
 from app.models import Restaurant, User, UserRestaurant
 
@@ -42,6 +43,11 @@ def get_current_user(request: Request, db: Session = Depends(get_db)) -> User:
     user = db.scalar(select(User).where(User.id == payload["sub"], User.is_active.is_(True)))
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+    # Reject tokens issued before token_valid_after (password change, revocation)
+    if user.token_valid_after:
+        issued_at = payload.get("iat", 0)
+        if issued_at < user.token_valid_after.timestamp():
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Session expired")
     return user
 
 
@@ -101,12 +107,29 @@ def get_restaurant_or_404(db: Session, restaurant_id: str) -> Restaurant:
 def verify_tool_secret(request: Request) -> None:
     secret = request.headers.get(settings.tool_secret_header_name)
     if secret != settings.elevenlabs_tool_secret:
+        received_hint = f"{secret[:4]}…" if secret and len(secret) > 4 else "(missing)"
+        expected_hint = f"{settings.elevenlabs_tool_secret[:4]}…"
+        json_log(
+            "app.security",
+            {
+                "event": "tool_auth_failed",
+                "path": str(request.url.path),
+                "header": settings.tool_secret_header_name,
+                "received_prefix": received_hint,
+                "expected_prefix": expected_hint,
+                "client": request.client.host if request.client else None,
+            },
+        )
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid tool secret")
 
 
+# Personalization uses the same header but accepts both the dedicated personalization
+# secret (if configured) and the general tool secret, so a single secret works for
+# all ElevenLabs integrations unless explicitly separated.
 def verify_personalization_secret(request: Request) -> None:
     secret = request.headers.get(settings.tool_secret_header_name)
-    if secret != settings.personalization_secret:
+    accepted = {settings.elevenlabs_tool_secret, settings.personalization_secret}
+    if secret not in accepted:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid personalization secret"
         )

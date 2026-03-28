@@ -35,6 +35,13 @@ class CallOutcome(StrEnum):
     info_provided = "info_provided"
     escalated = "escalated"
     abandoned = "abandoned"
+    tool_error = "tool_error"
+
+
+class CallStatus(StrEnum):
+    successful = "successful"
+    failed = "failed"
+    unknown = "unknown"
 
 
 class SyncStatus(AppBaseModel):

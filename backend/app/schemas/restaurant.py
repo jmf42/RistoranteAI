@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 from datetime import time
-from typing import Any, Literal
+from typing import Any
 
 from pydantic import Field, field_validator
 
@@ -17,15 +17,6 @@ def _parse_hhmm(value: str) -> time:
     return time.fromisoformat(value)
 
 
-class AssistantSettings(AppBaseModel):
-    llm_provider: Literal["openai"] = "openai"
-    openai_model: str = "gpt-5-mini"
-    reasoning_effort: Literal["none", "minimal", "low", "medium", "high", "xhigh"] = "minimal"
-    response_verbosity: Literal["low", "medium", "high"] = "low"
-    custom_greeting: str | None = None
-    agent_style_notes: str | None = None
-
-
 class RestaurantBase(AppBaseModel):
     slug: str
     name: str
@@ -38,7 +29,8 @@ class RestaurantBase(AppBaseModel):
     closure_dates: list[str] = Field(default_factory=list)
     turni: list[dict[str, Any]] = Field(default_factory=list)
     booking_rules: dict[str, Any] = Field(default_factory=dict)
-    assistant_settings: AssistantSettings = Field(default_factory=AssistantSettings)
+    custom_greeting: str | None = None
+    agent_style_notes: str | None = None
     escalation_phone: str | None = None
     is_active: bool = True
 
@@ -143,7 +135,8 @@ class RestaurantUpdate(AppBaseModel):
     closure_dates: list[str] | None = None
     turni: list[dict[str, Any]] | None = None
     booking_rules: dict[str, Any] | None = None
-    assistant_settings: AssistantSettings | None = None
+    custom_greeting: str | None = None
+    agent_style_notes: str | None = None
     escalation_phone: str | None = None
     is_active: bool | None = None
 

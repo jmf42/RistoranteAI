@@ -112,7 +112,7 @@ async def inbound_call(request: Request, db: Session = Depends(get_db)) -> Respo
             agent_id=restaurant.elevenlabs_agent_id or "",
             from_number=from_number,
             to_number=to_number,
-            conversation_initiation_client_data=personalization.model_dump(mode="python"),
+            conversation_initiation_client_data=personalization.model_dump(mode="python", exclude_none=True),
             direction="inbound",
         )
     except Exception as exc:  # noqa: BLE001

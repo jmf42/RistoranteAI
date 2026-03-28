@@ -27,10 +27,6 @@ const telephonyFields: Array<{
   { field: "escalation_phone", label: "Numero trasferimento umano" }
 ];
 
-const openAiModelPresets = ["gpt-5.4", "gpt-5", "gpt-5-mini", "gpt-5-nano"];
-const reasoningEffortOptions = ["none", "minimal", "low", "medium", "high", "xhigh"];
-const verbosityOptions = ["low", "medium", "high"];
-
 export default function SettingsPage() {
   const { restaurant, refreshWorkspace } = useWorkspace();
   const [form, setForm] = useState<Restaurant | null>(null);
@@ -74,7 +70,8 @@ export default function SettingsPage() {
         closure_dates: form.closure_dates,
         turni: form.turni,
         booking_rules: form.booking_rules,
-        assistant_settings: form.assistant_settings,
+        custom_greeting: form.custom_greeting || null,
+        agent_style_notes: form.agent_style_notes || null,
         escalation_phone: form.escalation_phone || null,
         is_active: form.is_active,
       };
@@ -146,7 +143,7 @@ export default function SettingsPage() {
               </div>
             </div>
 
-            <div className="grid gap-4 md:grid-cols-2">
+            <div className="grid gap-4 sm:grid-cols-2">
               {Object.entries(form.opening_hours).map(([key, value]) => (
                 <label key={key} className="grid gap-2 text-sm text-ink/65">
                   Orario {key}
@@ -179,143 +176,21 @@ export default function SettingsPage() {
         <SectionCard title="Cervello AI e telefono" kicker="Owner configurable">
           <div className="space-y-5">
             <div className="rounded-[1.5rem] border border-stone/80 bg-ivory/60 p-4">
-              <p className="text-xs uppercase tracking-[0.24em] text-ink/45">Modello e comportamento</p>
+              <p className="text-xs uppercase tracking-[0.24em] text-ink/45">Personalizzazione agente</p>
               <div className="mt-4 grid gap-4">
-                <label className="grid gap-2 text-sm text-ink/65">
-                  Provider LLM
-                  <input
-                    className="rounded-2xl border border-stone bg-white/80 px-4 py-3 text-ink outline-none transition focus:border-gold"
-                    value={form.assistant_settings.llm_provider}
-                    readOnly
-                  />
-                </label>
-
-                <label className="grid gap-2 text-sm text-ink/65">
-                  Modello OpenAI
-                  <div className="grid gap-3 md:grid-cols-[0.45fr_0.55fr]">
-                    <select
-                      className="rounded-2xl border border-stone bg-white/80 px-4 py-3 text-ink outline-none transition focus:border-gold"
-                      value={
-                        openAiModelPresets.includes(form.assistant_settings.openai_model)
-                          ? form.assistant_settings.openai_model
-                          : "custom"
-                      }
-                      onChange={(event) =>
-                        setForm((current) =>
-                          current
-                            ? {
-                                ...current,
-                                assistant_settings: {
-                                  ...current.assistant_settings,
-                                  openai_model:
-                                    event.target.value === "custom"
-                                      ? current.assistant_settings.openai_model
-                                      : event.target.value
-                                }
-                              }
-                            : current
-                        )
-                      }
-                    >
-                      {openAiModelPresets.map((model) => (
-                        <option key={model} value={model}>
-                          {model}
-                        </option>
-                      ))}
-                      <option value="custom">Custom</option>
-                    </select>
-                    <input
-                      className="rounded-2xl border border-stone bg-white/80 px-4 py-3 text-ink outline-none transition focus:border-gold"
-                      value={form.assistant_settings.openai_model}
-                      onChange={(event) =>
-                        setForm((current) =>
-                          current
-                            ? {
-                                ...current,
-                                assistant_settings: {
-                                  ...current.assistant_settings,
-                                  openai_model: event.target.value
-                                }
-                              }
-                            : current
-                        )
-                      }
-                    />
-                  </div>
-                </label>
-
-                <div className="grid gap-4 md:grid-cols-2">
-                  <label className="grid gap-2 text-sm text-ink/65">
-                    Reasoning effort
-                    <select
-                      className="rounded-2xl border border-stone bg-white/80 px-4 py-3 text-ink outline-none transition focus:border-gold"
-                      value={form.assistant_settings.reasoning_effort}
-                      onChange={(event) =>
-                        setForm((current) =>
-                          current
-                            ? {
-                                ...current,
-                                assistant_settings: {
-                                  ...current.assistant_settings,
-                                  reasoning_effort: event.target.value as Restaurant["assistant_settings"]["reasoning_effort"]
-                                }
-                              }
-                            : current
-                        )
-                      }
-                    >
-                      {reasoningEffortOptions.map((value) => (
-                        <option key={value} value={value}>
-                          {value}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-
-                  <label className="grid gap-2 text-sm text-ink/65">
-                    Verbosità risposta
-                    <select
-                      className="rounded-2xl border border-stone bg-white/80 px-4 py-3 text-ink outline-none transition focus:border-gold"
-                      value={form.assistant_settings.response_verbosity}
-                      onChange={(event) =>
-                        setForm((current) =>
-                          current
-                            ? {
-                                ...current,
-                                assistant_settings: {
-                                  ...current.assistant_settings,
-                                  response_verbosity: event.target.value as Restaurant["assistant_settings"]["response_verbosity"]
-                                }
-                              }
-                            : current
-                        )
-                      }
-                    >
-                      {verbosityOptions.map((value) => (
-                        <option key={value} value={value}>
-                          {value}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                </div>
-
                 <label className="grid gap-2 text-sm text-ink/65">
                   Greeting iniziale personalizzato
                   <textarea
                     rows={3}
                     className="rounded-2xl border border-stone bg-white/80 px-4 py-3 text-ink outline-none transition focus:border-gold"
-                    placeholder="Buonasera, Trattoria da Mario. Come posso aiutarla?"
-                    value={form.assistant_settings.custom_greeting ?? ""}
+                    placeholder="{saluto}, Trattoria Madonnina. Come posso aiutarla?"
+                    value={form.custom_greeting ?? ""}
                     onChange={(event) =>
                       setForm((current) =>
                         current
                           ? {
                               ...current,
-                              assistant_settings: {
-                                ...current.assistant_settings,
-                                custom_greeting: event.target.value || null
-                              }
+                              custom_greeting: event.target.value || null
                             }
                           : current
                       )
@@ -329,16 +204,13 @@ export default function SettingsPage() {
                     rows={4}
                     className="rounded-2xl border border-stone bg-white/80 px-4 py-3 text-ink outline-none transition focus:border-gold"
                     placeholder="Warm, concise, premium Italian hospitality tone."
-                    value={form.assistant_settings.agent_style_notes ?? ""}
+                    value={form.agent_style_notes ?? ""}
                     onChange={(event) =>
                       setForm((current) =>
                         current
                           ? {
                               ...current,
-                              assistant_settings: {
-                                ...current.assistant_settings,
-                                agent_style_notes: event.target.value || null
-                              }
+                              agent_style_notes: event.target.value || null
                             }
                           : current
                       )
@@ -349,9 +221,7 @@ export default function SettingsPage() {
             </div>
 
             <div className="rounded-[1.5rem] border border-stone/80 bg-white/70 p-4 text-sm leading-7 text-ink/65">
-              Il numero Twilio, il numero di escalation e l’agent id restano configurabili qui sopra. Il
-              modello OpenAI scelto viene salvato nel ristorante e incluso nella personalizzazione runtime
-              verso ElevenLabs, così non rimane più solo scritto nella documentazione.
+              Usa <strong>{`{saluto}`}</strong> nel greeting per inserire automaticamente &ldquo;Buongiorno&rdquo; o &ldquo;Buonasera&rdquo; in base all&apos;orario. Esempio: <em>{`{saluto}, Trattoria Madonnina. Come posso aiutarla?`}</em>. Se lasci il campo vuoto, il sistema genera il saluto automaticamente. Le note stile vengono iniettate nel prompt di sistema dell&apos;agente ElevenLabs per calibrare tono e comportamento. Modello LLM, voce e parametri avanzati si configurano direttamente nella console ElevenLabs.
             </div>
           </div>
         </SectionCard>
@@ -363,7 +233,7 @@ export default function SettingsPage() {
                 {form.turni.map((turno, index) => (
                   <div
                     key={`${turno.name}-${index}`}
-                    className="relative grid gap-3 rounded-[1.5rem] border border-stone/80 bg-ivory/70 p-4 md:grid-cols-4"
+                    className="relative grid gap-3 rounded-[1.5rem] border border-stone/80 bg-ivory/70 p-4 pt-10 sm:grid-cols-2 sm:pt-4 xl:grid-cols-4"
                   >
                     {form.turni.length > 1 ? (
                       <button
@@ -465,7 +335,7 @@ export default function SettingsPage() {
                 </button>
               </div>
 
-              <div className="grid gap-4 md:grid-cols-2">
+              <div className="grid gap-4 sm:grid-cols-2">
                 {Object.entries(form.booking_rules).map(([key, value]) => {
                   const ruleLabels: Record<string, string> = {
                     min_party: "Coperti minimi",

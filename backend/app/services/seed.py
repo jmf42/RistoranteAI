@@ -38,14 +38,8 @@ def seed_demo_data(db: Session) -> None:
             "max_advance_days": 60,
             "min_lead_hours": 2,
         },
-        assistant_settings={
-            "llm_provider": "openai",
-            "openai_model": "gpt-5-mini",
-            "reasoning_effort": "minimal",
-            "response_verbosity": "low",
-            "custom_greeting": None,
-            "agent_style_notes": "Warm, concise, premium Italian hospitality tone.",
-        },
+        custom_greeting=None,
+        agent_style_notes="Warm, concise, premium Italian hospitality tone.",
         escalation_phone="+390298765432",
     )
     db.add(restaurant)

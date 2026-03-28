@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from sqlalchemy import create_engine, inspect
+from sqlalchemy import create_engine
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 from app.core.config import settings
@@ -32,27 +32,7 @@ engine = create_engine(settings.database_url, **_engine_kwargs())
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)
 
 
-def ensure_runtime_schema() -> None:
-    inspector = inspect(engine)
-    table_names = set(inspector.get_table_names())
-    if "restaurants" not in table_names:
-        return
-
-    restaurant_columns = {column["name"] for column in inspector.get_columns("restaurants")}
-    if "assistant_settings" in restaurant_columns:
-        return
-
-    default_expr = "'{}'" if engine.dialect.name == "sqlite" else "'{}'::json"
-    statement = (
-        "ALTER TABLE restaurants "
-        f"ADD COLUMN assistant_settings JSON NOT NULL DEFAULT {default_expr}"
-    )
-    with engine.begin() as connection:
-        connection.exec_driver_sql(statement)
-
-
 def init_db() -> None:
     from app.models import entities  # noqa: F401
 
     Base.metadata.create_all(bind=engine)
-    ensure_runtime_schema()

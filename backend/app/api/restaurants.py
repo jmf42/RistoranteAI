@@ -12,9 +12,42 @@ from app.integrations.elevenlabs import elevenlabs_service
 from app.models import Booking, CallLog, Restaurant, User
 from app.schemas.common import SyncStatus
 from app.schemas.restaurant import RestaurantCreate, RestaurantRead, RestaurantSummary, RestaurantUpdate
-from app.services.availability import COUNTABLE_STATUSES
+from app.services.availability import COUNTABLE_STATUSES, parse_turni
 
 router = APIRouter(prefix="/restaurants", tags=["restaurants"])
+
+
+def _check_turni_coverage(restaurant: Restaurant) -> list[str]:
+    """Return warnings for opening_hours periods not covered by any turno."""
+    warnings: list[str] = []
+    turni = parse_turni(restaurant)
+    if not turni:
+        return warnings
+    from datetime import time as Time
+
+    for period, hours_str in (restaurant.opening_hours or {}).items():
+        try:
+            start_str, end_str = hours_str.split("-")
+            period_start = Time.fromisoformat(start_str.strip())
+            period_end = Time.fromisoformat(end_str.strip())
+        except (ValueError, AttributeError):
+            continue
+        covered = any(
+            turno.start <= period_start and turno.end >= period_end
+            for turno in turni
+        )
+        if not covered:
+            # Check if at least one turno overlaps this period
+            partial = any(
+                turno.start < period_end and turno.end > period_start
+                for turno in turni
+            )
+            if not partial:
+                warnings.append(
+                    f"L'orario '{period}' ({hours_str}) non è coperto da nessun turno. "
+                    f"Le prenotazioni in quella fascia verranno rifiutate."
+                )
+    return warnings
 
 
 def _raise_restaurant_integrity_error(exc: IntegrityError) -> None:
@@ -134,8 +167,14 @@ def update_restaurant(
         db.rollback()
         _raise_restaurant_integrity_error(exc)
     db.refresh(restaurant)
+    warnings = _check_turni_coverage(restaurant)
     sync_status = None
     if sync_agent:
         sync_result = elevenlabs_service.sync_restaurant_config(restaurant)
-        sync_status = SyncStatus(synced=sync_result.synced, message=sync_result.message)
+        message = sync_result.message
+        if warnings:
+            message = f"{message} ⚠ {' '.join(warnings)}"
+        sync_status = SyncStatus(synced=sync_result.synced, message=message)
+    elif warnings:
+        sync_status = SyncStatus(synced=True, message=f"⚠ {' '.join(warnings)}")
     return _to_read(restaurant, sync_status=sync_status)

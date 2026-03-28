@@ -140,34 +140,64 @@ class ElevenLabsService:
     ) -> str:
         if not settings.elevenlabs_api_key:
             raise RuntimeError("ELEVENLABS_API_KEY is not configured")
-        return self._client.conversational_ai.twilio.register_call(
+        # The SDK's register_call returns None (data is discarded), but the
+        # raw HTTP response contains the TwiML XML that Twilio needs.  We use
+        # the raw client so we can access response.text.
+        raw_response = self._client.conversational_ai.twilio._raw_client.register_call(
             agent_id=agent_id,
             from_number=from_number,
             to_number=to_number,
             direction=direction,
             conversation_initiation_client_data=conversation_initiation_client_data,
         )
+        return raw_response._response.text
 
-    def fetch_conversation_transcript(self, conversation_id: str) -> dict | None:
+    def list_recent_conversations(
+        self,
+        *,
+        agent_id: str,
+        call_start_after_unix: int,
+        page_size: int = 30,
+    ) -> list[dict[str, Any]]:
+        if not settings.elevenlabs_api_key:
+            return []
+        try:
+            page = self._client.conversational_ai.conversations.list(
+                agent_id=agent_id,
+                call_start_after_unix=call_start_after_unix,
+                page_size=page_size,
+                summary_mode="include",
+            )
+        except Exception:  # noqa: BLE001
+            return []
+        return self._dump_model(page.conversations) or []
+
+    def fetch_conversation(self, conversation_id: str) -> dict[str, Any] | None:
         if not settings.elevenlabs_api_key:
             return None
         try:
             conversation = self._client.conversational_ai.conversations.get(conversation_id)
         except Exception:  # noqa: BLE001
             return None
+        return self._dump_model(conversation)
 
-        analysis = self._dump_model(conversation.analysis) or {}
-        metadata = self._dump_model(conversation.metadata) or {}
-        initiation_data = self._dump_model(conversation.conversation_initiation_client_data) or {}
+    def fetch_conversation_transcript(self, conversation_id: str) -> dict | None:
+        conversation = self.fetch_conversation(conversation_id)
+        if not conversation:
+            return None
+
+        analysis = conversation.get("analysis") or {}
+        metadata = conversation.get("metadata") or {}
+        initiation_data = conversation.get("conversation_initiation_client_data") or {}
         return {
-            "conversation_id": conversation.conversation_id,
-            "agent_id": conversation.agent_id,
-            "agent_name": conversation.agent_name,
-            "status": str(conversation.status),
+            "conversation_id": conversation.get("conversation_id"),
+            "agent_id": conversation.get("agent_id"),
+            "agent_name": conversation.get("agent_name"),
+            "status": str(conversation.get("status")),
             "analysis": analysis,
             "metadata": metadata,
             "conversation_initiation_client_data": initiation_data,
-            "transcript": self._serialize_transcript(conversation.transcript),
+            "transcript": self._serialize_transcript(conversation.get("transcript")),
         }
 
 

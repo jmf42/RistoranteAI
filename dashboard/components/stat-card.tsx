@@ -26,12 +26,12 @@ export function StatCard({
       <p className="ui-kicker text-xs font-semibold uppercase tracking-[0.2em] text-ink/55 sm:tracking-[0.24em]">
         {label}
       </p>
-      <div className="mt-4 flex items-end justify-between gap-4">
+      <div className="mt-4 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div className="min-w-0">
           <p className="ui-display-stat-value font-display text-ink">{value}</p>
           <p className="mt-2 text-sm text-ink/60">{detail}</p>
         </div>
-        <div className="rounded-full border border-current/20 bg-white/75 px-3 py-1 text-sm font-semibold">
+        <div className="self-start rounded-full border border-current/20 bg-white/75 px-3 py-1 text-sm font-semibold sm:self-auto">
           {trendLabel(delta)}
         </div>
       </div>

@@ -164,11 +164,16 @@ def check_availability(
                         "remaining": remaining,
                     }
                 )
+        turni_ranges = ", ".join(f"{t.start.strftime('%H:%M')}-{t.end.strftime('%H:%M')}" for t in turni)
+        time_str = requested_time.strftime("%H:%M") if requested_time else "non specificato"
         return {
             "open": True,
             "available": False,
-            "reason": "L'orario richiesto è fuori servizio.",
-            "alternatives": alternatives[:2],
+            "reason": (
+                f"L'orario richiesto ({time_str}) è fuori dai turni di servizio "
+                f"({turni_ranges}). Proponi le alternative al cliente."
+            ),
+            "alternatives": alternatives[:3],
         }
 
     remaining = turno_remaining_covers(

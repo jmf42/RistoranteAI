@@ -258,7 +258,7 @@ export default function BookingsPage() {
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               placeholder="Cerca per nome o codice"
-              className="w-full rounded-2xl border border-stone bg-ivory/80 px-4 py-3 text-sm text-ink outline-none md:w-64"
+              className="w-full rounded-2xl border border-stone bg-ivory/80 px-4 py-3 text-sm text-ink outline-none sm:max-w-xs"
             />
           }
         >
@@ -280,7 +280,7 @@ export default function BookingsPage() {
                   key={booking.id}
                   className="rounded-[1.4rem] border border-stone/80 bg-white/75 p-4"
                 >
-                  <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                  <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
                     <div>
                       <div className="flex flex-wrap items-center gap-3">
                         <p className="font-display text-2xl text-ink">{booking.customer_name}</p>
@@ -310,32 +310,32 @@ export default function BookingsPage() {
                       </p>
                     </div>
                     {["confirmed", "modified"].includes(booking.status) ? (
-                    <div className="flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setSelectedBooking(booking);
-                          hydrateForm(booking);
-                        }}
-                        className="rounded-full border border-stone px-3 py-2 text-xs font-semibold uppercase tracking-[0.22em] text-ink/70 transition hover:border-gold"
-                      >
-                        Modifica
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => updateStatus(booking, "no_show")}
-                        className="rounded-full border border-stone px-3 py-2 text-xs font-semibold uppercase tracking-[0.22em] text-ink/70 transition hover:border-gold"
-                      >
-                        No-show
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => updateStatus(booking, "cancelled")}
-                        className="rounded-full bg-terracotta px-3 py-2 text-xs font-semibold uppercase tracking-[0.22em] text-white transition hover:bg-terracotta/85"
-                      >
-                        Cancella
-                      </button>
-                    </div>
+                      <div className="grid grid-cols-2 gap-2 md:flex md:flex-wrap">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedBooking(booking);
+                            hydrateForm(booking);
+                          }}
+                          className="rounded-full border border-stone px-3 py-2 text-xs font-semibold uppercase tracking-[0.22em] text-ink/70 transition hover:border-gold"
+                        >
+                          Modifica
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => updateStatus(booking, "no_show")}
+                          className="rounded-full border border-stone px-3 py-2 text-xs font-semibold uppercase tracking-[0.22em] text-ink/70 transition hover:border-gold"
+                        >
+                          No-show
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => updateStatus(booking, "cancelled")}
+                          className="col-span-2 rounded-full bg-terracotta px-3 py-2 text-xs font-semibold uppercase tracking-[0.22em] text-white transition hover:bg-terracotta/85 md:col-span-1"
+                        >
+                          Cancella
+                        </button>
+                      </div>
                     ) : null}
                   </div>
                 </article>
@@ -464,14 +464,14 @@ export default function BookingsPage() {
                 ) : events.length ? (
                   events.map((event) => (
                     <article key={event.id} className="rounded-[1.2rem] border border-stone/70 bg-ivory/70 p-3">
-                      <div className="flex items-start justify-between gap-3">
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                         <div>
                           <p className="text-sm font-semibold capitalize text-ink">
                             {event.event_type.replaceAll("_", " ")}
                           </p>
                           <p className="mt-1 text-xs text-ink/55">{event.changed_by ?? "system"}</p>
                         </div>
-                        <p className="text-xs uppercase tracking-[0.18em] text-ink/40">
+                        <p className="text-xs uppercase tracking-[0.18em] text-ink/40 sm:text-right">
                           {formatDate(event.created_at.slice(0, 10))}
                         </p>
                       </div>

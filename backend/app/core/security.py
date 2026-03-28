@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import re
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import jwt
 import phonenumbers
-from cryptography.fernet import Fernet, InvalidToken
+from cryptography.fernet import Fernet, InvalidToken, MultiFernet
 from fastapi import Response
 from pwdlib import PasswordHash
 
@@ -24,20 +25,40 @@ def verify_password(password: str, hashed_password: str) -> bool:
     return password_hash.verify(password, hashed_password)
 
 
-def _build_fernet_key(seed: str) -> bytes:
+# Legacy key derivation (SHA256, no stretching) — kept for backward-compatible
+# decryption of data encrypted before the PBKDF2 migration.
+def _build_fernet_key_v1(seed: str) -> bytes:
     digest = hashlib.sha256(seed.encode("utf-8")).digest()
     return base64.urlsafe_b64encode(digest)
 
 
-def get_fernet(app_settings: Settings = settings) -> Fernet:
+# Stronger key derivation using PBKDF2 with a fixed application salt.
+_PBKDF2_SALT = b"ristorante-ai-pii-v2"
+_PBKDF2_ITERATIONS = 600_000
+
+
+def _build_fernet_key_v2(seed: str) -> bytes:
+    digest = hashlib.pbkdf2_hmac("sha256", seed.encode("utf-8"), _PBKDF2_SALT, _PBKDF2_ITERATIONS)
+    return base64.urlsafe_b64encode(digest)
+
+
+def _resolve_seed(app_settings: Settings) -> str:
     configured = app_settings.pii_encryption_key
-    if configured:
-        key_bytes = configured.encode("utf-8")
-        if len(key_bytes) != 44:
-            key_bytes = _build_fernet_key(configured)
-    else:
-        key_bytes = _build_fernet_key(app_settings.jwt_secret)
-    return Fernet(key_bytes)
+    return configured if configured else app_settings.jwt_secret
+
+
+def get_fernet(app_settings: Settings = settings) -> MultiFernet:
+    """Returns a MultiFernet that encrypts with v2 (PBKDF2) and decrypts with either."""
+    seed = _resolve_seed(app_settings)
+    configured = app_settings.pii_encryption_key
+    if configured and len(configured.encode("utf-8")) == 44:
+        # Raw Fernet key provided directly — use as-is for primary, v1 as fallback
+        primary = Fernet(configured.encode("utf-8"))
+        fallback = Fernet(_build_fernet_key_v1(configured))
+        return MultiFernet([primary, fallback])
+    v2 = Fernet(_build_fernet_key_v2(seed))
+    v1 = Fernet(_build_fernet_key_v1(seed))
+    return MultiFernet([v2, v1])
 
 
 def encrypt_pii(value: str, app_settings: Settings = settings) -> str:
@@ -57,6 +78,14 @@ def decrypt_pii_or_fallback(
         return decrypt_pii(value, app_settings)
     except InvalidToken:
         return fallback
+
+
+def mask_phone(phone: str) -> str:
+    """Mask a phone number, showing only last 4 digits: +39***4567"""
+    digits = re.sub(r"[^\d+]", "", phone)
+    if len(digits) <= 4:
+        return "****"
+    return digits[:3] + "***" + digits[-4:]
 
 
 def normalize_phone(phone_number: str, default_region: str | None = None) -> str:

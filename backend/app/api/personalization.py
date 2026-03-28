@@ -18,34 +18,18 @@ router = APIRouter(
 )
 
 
-def _assistant_settings(restaurant: Restaurant) -> dict:
-    settings = getattr(restaurant, "assistant_settings", None)
-    if isinstance(settings, dict):
-        return settings
-    return {
-        "llm_provider": "openai",
-        "openai_model": "gpt-5-mini",
-        "reasoning_effort": "minimal",
-        "response_verbosity": "low",
-        "custom_greeting": getattr(restaurant, "custom_greeting", None),
-        "agent_style_notes": getattr(restaurant, "agent_style_notes", None),
-    }
-
-
 def _greeting_for_restaurant(restaurant: Restaurant) -> str:
-    custom_greeting = _assistant_settings(restaurant).get("custom_greeting")
-    if isinstance(custom_greeting, str) and custom_greeting.strip():
-        return custom_greeting.strip()
     local_now = datetime.now(ZoneInfo(restaurant.timezone))
-    greeting = "Buongiorno" if local_now.hour < 14 else "Buonasera"
-    return f"{greeting}, {restaurant.name}. Come posso aiutarla?"
+    saluto = "Buongiorno" if local_now.hour < 14 else "Buonasera"
+    if restaurant.custom_greeting and restaurant.custom_greeting.strip():
+        return restaurant.custom_greeting.strip().replace("{saluto}", saluto)
+    return f"{saluto}, {restaurant.name}. Come posso aiutarla?"
 
 
 def build_twilio_personalization_response(
     restaurant: Restaurant,
     payload: TwilioPersonalizationRequest,
 ) -> TwilioPersonalizationResponse:
-    assistant_settings = _assistant_settings(restaurant)
     turni_description = ", ".join(
         f"{turno['name']}: {turno['start']}-{turno['end']}"
         for turno in restaurant.turni
@@ -54,32 +38,30 @@ def build_twilio_personalization_response(
         f"{k}: {v}" for k, v in (restaurant.opening_hours or {}).items()
     )
     weekly_closures_str = ", ".join(restaurant.weekly_closures or []) or "nessuna"
+    closure_dates_str = ", ".join(restaurant.closure_dates or []) or "nessuna"
+    local_now = datetime.now(ZoneInfo(restaurant.timezone))
     dynamic_variables = {
-        "restaurant_id": restaurant.id,
+        "restaurant_id": str(restaurant.id),
         "restaurant_name": restaurant.name,
-        "address": restaurant.address,
+        "address": restaurant.address or "",
         "opening_hours": opening_hours_str,
         "weekly_closures": weekly_closures_str,
+        "closure_dates": closure_dates_str,
         "turni_description": turni_description,
-        "large_group_threshold": restaurant.booking_rules.get("large_group_threshold", 8),
+        "large_group_threshold": str(restaurant.booking_rules.get("large_group_threshold", 8)),
         "caller_phone": payload.caller_id,
         "called_number": payload.called_number,
         "call_sid": payload.call_sid,
         "timezone": restaurant.timezone,
-        "llm_provider": assistant_settings.get("llm_provider", "openai"),
-        "openai_model": assistant_settings.get("openai_model", "gpt-5-mini"),
-        "reasoning_effort": assistant_settings.get("reasoning_effort", "minimal"),
-        "response_verbosity": assistant_settings.get("response_verbosity", "low"),
-        "agent_style_notes": assistant_settings.get("agent_style_notes") or "",
+        "current_date": local_now.strftime("%Y-%m-%d"),
+        "current_time": local_now.strftime("%H:%M"),
+        "current_day_of_week": local_now.strftime("%A"),
+        "escalation_phone": restaurant.escalation_phone or "",
+        "agent_style_notes": restaurant.agent_style_notes or "",
         "greeting": _greeting_for_restaurant(restaurant),
     }
     return TwilioPersonalizationResponse(
         dynamic_variables=dynamic_variables,
-        conversation_config_override={
-            "agent": {
-                "first_message": dynamic_variables["greeting"],
-            }
-        },
     )
 
 

@@ -2,8 +2,9 @@ FROM node:22-alpine AS build
 
 WORKDIR /app/dashboard
 
-ARG NEXT_PUBLIC_API_BASE_URL=https://ristorante-ai-api-534989834839.europe-west1.run.app
+ARG NEXT_PUBLIC_API_BASE_URL=https://ristorante-ai-api-jc7mvuujwq-ew.a.run.app
 ENV NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL}
+ENV API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL}
 
 COPY package.json package-lock.json* ./
 RUN npm ci

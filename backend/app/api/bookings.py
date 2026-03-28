@@ -11,6 +11,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.api.deps import accessible_restaurant_id, get_current_user, get_db, get_restaurant_or_404
+from app.core.observability import json_log
 from app.models import BookingEvent, User
 from app.schemas.booking import BookingCreate, BookingEventRead, BookingRead, BookingUpdate
 from app.services.bookings import (
@@ -112,6 +113,16 @@ def export_bookings_route(
             ]
         )
     filename = f"bookings-{datetime.now(UTC).date().isoformat()}.csv"
+    json_log(
+        "app.audit",
+        {
+            "event": "pii_export",
+            "export_type": "bookings_csv",
+            "user_email": current_user.email,
+            "restaurant_id": resolved_id,
+            "record_count": len(bookings),
+        },
+    )
     return StreamingResponse(
         iter([buffer.getvalue()]),
         media_type="text/csv; charset=utf-8",

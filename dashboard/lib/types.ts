@@ -12,7 +12,9 @@ export type CallOutcome =
   | "booking_cancelled"
   | "info_provided"
   | "escalated"
-  | "abandoned";
+  | "abandoned"
+  | "tool_error";
+export type CallStatus = "successful" | "failed" | "unknown";
 
 export interface SessionUser {
   id: string;
@@ -43,15 +45,6 @@ export interface RestaurantSyncStatus {
   message: string;
 }
 
-export interface RestaurantAssistantSettings {
-  llm_provider: "openai";
-  openai_model: string;
-  reasoning_effort: "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
-  response_verbosity: "low" | "medium" | "high";
-  custom_greeting: string | null;
-  agent_style_notes: string | null;
-}
-
 export interface Restaurant {
   id: string;
   slug: string;
@@ -65,7 +58,8 @@ export interface Restaurant {
   closure_dates: string[];
   turni: Array<{ name: string; start: string; end: string; max_covers: number }>;
   booking_rules: Record<string, number>;
-  assistant_settings: RestaurantAssistantSettings;
+  custom_greeting: string | null;
+  agent_style_notes: string | null;
   escalation_phone: string | null;
   is_active: boolean;
   created_at: string;
@@ -107,6 +101,7 @@ export interface CallLog {
   started_at: string;
   duration_seconds: number;
   outcome: CallOutcome;
+  call_status: CallStatus;
   booking_id: string | null;
   summary: string;
   transcript_preview: string | null;

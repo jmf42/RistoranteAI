@@ -9,10 +9,12 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import accessible_restaurant_id, get_current_user, get_db
+from app.api.deps import accessible_restaurant_id, get_current_user, get_db, get_restaurant_or_404
+from app.core.observability import json_log
 from app.integrations.elevenlabs import elevenlabs_service
 from app.models import CallLog, User
 from app.schemas.calls import CallLogRead, TranscriptResponse
+from app.services.call_logs import sync_recent_calls_from_elevenlabs
 
 router = APIRouter(prefix="/calls", tags=["calls"])
 
@@ -25,6 +27,7 @@ def _call_to_read(call: CallLog) -> CallLogRead:
         started_at=call.started_at.isoformat(),
         duration_seconds=call.duration_seconds,
         outcome=call.outcome,
+        call_status=call.call_status or "unknown",
         booking_id=call.booking_id,
         summary=call.summary,
         transcript_preview=call.transcript_preview,
@@ -40,6 +43,13 @@ def list_calls(
     current_user: User = Depends(get_current_user),
 ) -> list[CallLogRead]:
     resolved_id = accessible_restaurant_id(db, current_user=current_user, restaurant_id=restaurant_id)
+    restaurant = get_restaurant_or_404(db, resolved_id)
+    sync_recent_calls_from_elevenlabs(
+        db,
+        restaurant=restaurant,
+        days=days,
+        request_id=None,
+    )
     start_dt = datetime.now(UTC) - timedelta(days=days)
     stmt = select(CallLog).where(CallLog.restaurant_id == resolved_id, CallLog.started_at >= start_dt)
     if outcome:
@@ -86,6 +96,16 @@ def export_calls(
             ]
         )
     filename = f"calls-{datetime.now(UTC).date().isoformat()}.csv"
+    json_log(
+        "app.audit",
+        {
+            "event": "data_export",
+            "export_type": "calls_csv",
+            "user_email": current_user.email,
+            "restaurant_id": resolved_id,
+            "record_count": len(calls),
+        },
+    )
     return StreamingResponse(
         iter([buffer.getvalue()]),
         media_type="text/csv; charset=utf-8",

@@ -135,7 +135,8 @@ def test_personalization_includes_assistant_settings(client, db_session):
     assert response.status_code == 200
     payload = response.json()
     assert payload["dynamic_variables"]["agent_style_notes"] == "Elegant and direct."
-    assert payload["conversation_config_override"]["agent"]["first_message"] == "Buonasera, benvenuti da Mario."
+    assert payload["dynamic_variables"]["greeting"] == "Buonasera, benvenuti da Mario."
+    assert payload.get("conversation_config_override") is None
 
 
 def test_operator_can_pause_and_reactivate_restaurant_without_sync(client, db_session):
@@ -341,3 +342,121 @@ def test_twilio_inbound_falls_back_when_register_call_fails(client, db_session, 
 
     assert response.status_code == 200
     assert "Ci scusi, stiamo avendo un problema tecnico" in response.text
+
+
+def test_calls_list_backfills_missing_elevenlabs_twilio_calls(client, db_session, monkeypatch):
+    login(client)
+    restaurant = db_session.scalar(select(Restaurant).where(Restaurant.slug == "trattoria-da-mario"))
+    assert restaurant is not None
+
+    monkeypatch.setattr(
+        elevenlabs_service,
+        "list_recent_conversations",
+        lambda **_: [
+            {
+                "conversation_id": "conv_missing_from_webhook",
+                "conversation_initiation_source": "twilio",
+                "direction": "inbound",
+            },
+            {
+                "conversation_id": "conv_browser_test",
+                "conversation_initiation_source": "react_sdk",
+                "direction": None,
+            },
+        ],
+    )
+    monkeypatch.setattr(
+        elevenlabs_service,
+        "fetch_conversation",
+        lambda conversation_id: {
+            "conversation_id": conversation_id,
+            "agent_id": restaurant.elevenlabs_agent_id,
+            "status": "done",
+            "call_successful": "failure",
+            "transcript": [{"role": "agent", "message": "Mi scusi, ho avuto un problema tecnico."}],
+            "analysis": {"transcript_summary": "Tentativo prenotazione non completato."},
+            "metadata": {
+                "start_time_unix_secs": 1774706210,
+                "call_duration_secs": 118,
+                "phone_call": {
+                    "direction": "inbound",
+                    "agent_number": restaurant.twilio_phone,
+                    "external_number": "+41779802809",
+                },
+            },
+            "conversation_initiation_client_data": {
+                "dynamic_variables": {
+                    "restaurant_id": restaurant.id,
+                    "called_number": restaurant.twilio_phone,
+                    "caller_phone": "+41779802809",
+                }
+            },
+        },
+    )
+
+    response = client.get("/api/calls")
+    assert response.status_code == 200
+    payload = response.json()
+    synced = next(item for item in payload if item["elevenlabs_conversation_id"] == "conv_missing_from_webhook")
+    assert synced["call_status"] == "failed"
+    assert synced["outcome"] == "info_provided"
+
+    stored = db_session.scalar(
+        select(CallLog).where(CallLog.elevenlabs_conversation_id == "conv_missing_from_webhook")
+    )
+    assert stored is not None
+    assert stored.call_status == "failed"
+
+
+def test_calls_list_backfill_marks_tool_error_when_remote_transcript_shows_failure(
+    client, db_session, monkeypatch
+):
+    login(client)
+    restaurant = db_session.scalar(select(Restaurant).where(Restaurant.slug == "trattoria-da-mario"))
+    assert restaurant is not None
+
+    monkeypatch.setattr(
+        elevenlabs_service,
+        "list_recent_conversations",
+        lambda **_: [
+            {
+                "conversation_id": "conv_tool_error",
+                "conversation_initiation_source": "twilio",
+                "direction": "inbound",
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        elevenlabs_service,
+        "fetch_conversation",
+        lambda conversation_id: {
+            "conversation_id": conversation_id,
+            "agent_id": restaurant.elevenlabs_agent_id,
+            "status": "done",
+            "call_successful": "failure",
+            "transcript": "Tool failed while creating reservation.",
+            "analysis": {"transcript_summary": "La prenotazione non è andata a buon fine."},
+            "metadata": {
+                "start_time_unix_secs": 1774706210,
+                "call_duration_secs": 45,
+                "phone_call": {
+                    "direction": "inbound",
+                    "agent_number": restaurant.twilio_phone,
+                    "external_number": "+41779802809",
+                },
+            },
+            "conversation_initiation_client_data": {
+                "dynamic_variables": {
+                    "restaurant_id": restaurant.id,
+                    "called_number": restaurant.twilio_phone,
+                    "caller_phone": "+41779802809",
+                }
+            },
+        },
+    )
+
+    response = client.get("/api/calls")
+    assert response.status_code == 200
+    payload = response.json()
+    synced = next(item for item in payload if item["elevenlabs_conversation_id"] == "conv_tool_error")
+    assert synced["outcome"] == "tool_error"

@@ -69,6 +69,7 @@ class ModifyBookingChanges(AppBaseModel):
 
 
 class ModifyBookingRequest(AppBaseModel):
+    restaurant_id: str | None = None
     confirmation_code: str
     changes: ModifyBookingChanges
 
@@ -81,6 +82,7 @@ class ModifyBookingResponse(AppBaseModel):
 
 
 class CancelBookingRequest(AppBaseModel):
+    restaurant_id: str | None = None
     confirmation_code: str
 
 
@@ -98,4 +100,3 @@ class TwilioPersonalizationRequest(AppBaseModel):
 class TwilioPersonalizationResponse(AppBaseModel):
     type: str = "conversation_initiation_client_data"
     dynamic_variables: dict[str, Any]
-    conversation_config_override: dict[str, Any] | None = None

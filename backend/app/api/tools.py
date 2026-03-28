@@ -33,6 +33,17 @@ from app.services.bookings import (
 router = APIRouter(prefix="/tools", tags=["tools"], dependencies=[Depends(verify_tool_secret)])
 
 
+@router.get("/health")
+def tools_health() -> dict:
+    """Verify tool secret authentication is working.
+
+    If you reach this endpoint, the ``X-Ristorante-Tool-Secret`` header is valid.
+    Call this from ElevenLabs or curl to confirm connectivity before running
+    real tool calls.
+    """
+    return {"status": "ok", "auth": "valid"}
+
+
 @router.post("/check-availability", response_model=CheckAvailabilityResponse)
 def check_availability_route(
     payload: CheckAvailabilityRequest,

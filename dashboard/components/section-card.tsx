@@ -12,8 +12,8 @@ export function SectionCard({
   action?: ReactNode;
 }) {
   return (
-    <section className="min-w-0 rounded-[2rem] border border-stone/80 bg-white/80 p-6 shadow-card backdrop-blur">
-      <div className="mb-5 flex items-start justify-between gap-4">
+    <section className="min-w-0 rounded-[2rem] border border-stone/80 bg-white/80 p-5 shadow-card backdrop-blur sm:p-6">
+      <div className="mb-5 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
           {kicker ? (
             <p className="ui-kicker mb-2 text-xs font-semibold uppercase tracking-[0.24em] text-terracotta/70 sm:tracking-[0.32em]">
@@ -22,7 +22,7 @@ export function SectionCard({
           ) : null}
           <h2 className="ui-display-title font-display text-2xl text-ink">{title}</h2>
         </div>
-        {action}
+        {action ? <div className="w-full min-w-0 sm:w-auto sm:flex-none">{action}</div> : null}
       </div>
       {children}
     </section>
