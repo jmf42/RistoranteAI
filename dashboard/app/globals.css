@@ -79,6 +79,15 @@ a {
   font-size: clamp(2rem, 3vw, 2.6rem);
 }
 
+.ui-snap-row {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.ui-snap-row::-webkit-scrollbar {
+  display: none;
+}
+
 input,
 select,
 textarea,

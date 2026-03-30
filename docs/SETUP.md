@@ -21,6 +21,8 @@ If you previously cleaned local generated files, these are the only two restore 
 - owner: `owner@trattoriamadonnina.it` / `madonnina`
 - operator: `operator@ristorante.ai` / `demo-password`
 
+The owner account maps to **Trattoria Madonnina** (UUID: `a1f59bc4-b750-4f2c-bcb1-0a703ac732c7`).
+
 ## Local Database Modes
 
 ### Fastest local mode
@@ -73,17 +75,51 @@ Important production differences:
 - `ALLOWED_ORIGINS`
   must include the actual dashboard origin
 - `JWT_SECRET`
-  long random secret
+  long random secret (32+ bytes)
 - `PII_ENCRYPTION_KEY`
-  must be explicit and stable in production
+  must be explicit and stable in production — changing it makes existing encrypted data unreadable
 - `ELEVENLABS_TOOL_SECRET`
-  shared secret for server tool endpoints
+  shared secret for server tool endpoints — must match value configured in ElevenLabs tool headers
 - `ELEVENLABS_PERSONALIZATION_SECRET`
-  shared secret for personalization requests
+  shared secret for personalization requests (falls back to tool secret if not set)
 - `ELEVENLABS_WEBHOOK_SECRET`
-  required for validating post-call webhook signatures in production
+  required for validating post-call webhook signatures in production — must match ElevenLabs agent signing key
+- `ELEVENLABS_API_KEY`
+  required for Twilio call registration, transcript retrieval, agent sync
 - `NEXT_PUBLIC_API_BASE_URL`
-  browser-visible backend URL for the dashboard
+  browser-visible backend URL for the dashboard — **required at build time**
+
+## Verification
+
+After starting locally:
+
+```bash
+cd backend
+uv run ruff check app tests
+uv run pytest
+```
+
+Expected: 95 tests pass.
+
+```bash
+cd dashboard
+npm run build
+```
+
+Expected: clean build with no TypeScript errors.
+
+## ElevenLabs Local Testing
+
+To test tool endpoints locally, use the health check:
+
+```bash
+curl -i http://127.0.0.1:8000/api/tools/health \
+  -H "X-Ristorante-Tool-Secret: local-tool-secret"
+```
+
+Expected: `{"status": "ok", "auth": "valid"}`
+
+Note: `local-tool-secret` is the default in `.env.example`. Production uses a secret from GCP Secret Manager.
 
 ## Cloud Run Note
 
@@ -94,4 +130,21 @@ For public smoke checks on Cloud Run default `*.run.app` domains:
 - use `/health` for liveness
 - use `/readyz` for readiness
 
-Do not depend on `/healthz` for the public Cloud Run URL.
+Do not depend on `/healthz` for the public Cloud Run URL — it is intercepted by Google before reaching the service.
+
+## Running Alembic Migrations Locally
+
+```bash
+cd backend
+
+# Apply all pending migrations
+uv run alembic upgrade head
+
+# Check current version
+uv run alembic current
+
+# Create a new migration (after changing entities.py)
+uv run alembic revision --autogenerate -m "description_of_change"
+```
+
+Migration files live in `backend/alembic/versions/`. Follow the naming pattern: `YYYYMMDD_NNNN_description.py`.

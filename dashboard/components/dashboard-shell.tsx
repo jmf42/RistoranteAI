@@ -106,9 +106,8 @@ export function DashboardShell({
               <p className="ui-kicker text-[10px] font-semibold uppercase tracking-[0.22em] text-terracotta/70">
                 Ristorante AI
               </p>
-              <p className="truncate text-sm font-medium text-ink/72">
-                {restaurant?.name ?? user.full_name}
-              </p>
+              <p className="truncate text-base font-semibold text-ink">{title}</p>
+              <p className="truncate text-xs text-ink/58">{restaurant?.name ?? user.full_name}</p>
             </div>
             <button
               type="button"
@@ -221,7 +220,7 @@ export function DashboardShell({
         </div>
       ) : null}
 
-      <div className="mx-auto flex max-w-[1500px] flex-col gap-6 px-3 pb-24 pt-3 lg:flex-row lg:px-6 lg:py-5 lg:pb-5">
+      <div className="mx-auto flex max-w-[1500px] flex-col gap-5 px-3 pb-32 pt-3 lg:flex-row lg:gap-6 lg:px-6 lg:py-5 lg:pb-5">
         <aside className="hidden lg:block lg:sticky lg:top-5 lg:h-[calc(100vh-2.5rem)] lg:w-[280px] lg:flex-none">
           <div className="flex h-full flex-col rounded-[2rem] border border-white/70 bg-night px-6 py-7 text-ivory shadow-card">
             <div>
@@ -272,8 +271,8 @@ export function DashboardShell({
         </aside>
 
         <main className="min-w-0 flex-1">
-          <div className="rounded-[2rem] border border-white/75 bg-white/72 p-4 shadow-card backdrop-blur sm:p-5 lg:rounded-[2.25rem] lg:p-7">
-            <header className="mb-6 flex flex-col gap-5 border-b border-stone/80 pb-6 xl:flex-row xl:items-end xl:justify-between">
+          <div className="rounded-[1.85rem] border border-white/75 bg-white/72 p-4 shadow-card backdrop-blur sm:p-5 lg:rounded-[2.25rem] lg:p-7">
+            <header className="mb-5 flex flex-col gap-4 border-b border-stone/80 pb-5 xl:mb-6 xl:flex-row xl:items-end xl:justify-between xl:gap-5 xl:pb-6">
               <div>
                 <p className="ui-kicker text-xs font-semibold uppercase tracking-[0.24em] text-terracotta/70 sm:tracking-[0.32em]">
                   {restaurant ? restaurant.name : "Workspace"}
@@ -283,7 +282,7 @@ export function DashboardShell({
                 </h2>
                 <p className="mt-2 max-w-2xl text-sm leading-6 text-ink/65">{subtitle}</p>
               </div>
-              <div className="flex w-full flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center xl:w-auto xl:justify-end">
+              <div className="flex w-full flex-col gap-2.5 sm:flex-row sm:flex-wrap sm:items-center xl:w-auto xl:justify-end">
                 {user.role === "operator" && restaurants.length ? (
                   <label className="flex w-full flex-col gap-2 text-xs font-semibold uppercase tracking-[0.24em] text-ink/45 sm:min-w-[240px] sm:flex-1 xl:flex-none">
                     Ristorante attivo
@@ -300,7 +299,7 @@ export function DashboardShell({
                     </select>
                   </label>
                 ) : null}
-                <div className="min-w-0 rounded-2xl border border-stone bg-ivory/70 px-4 py-3 text-sm text-ink/65 sm:flex-1 xl:max-w-[320px] xl:flex-none">
+                <div className="min-w-0 rounded-[1.25rem] border border-stone bg-ivory/70 px-4 py-3 text-sm leading-6 text-ink/65 sm:flex-1 xl:max-w-[320px] xl:flex-none">
                   {restaurant ? restaurant.address : "Nessun ristorante attivo"}
                 </div>
                 {actions ? (
@@ -315,8 +314,8 @@ export function DashboardShell({
         </main>
       </div>
 
-      <div className="lg:hidden fixed inset-x-0 bottom-0 z-40 px-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
-        <div className="grid grid-cols-5 gap-2 rounded-[1.7rem] border border-white/80 bg-white/82 p-2 shadow-card backdrop-blur">
+      <div className="lg:hidden fixed inset-x-0 bottom-0 z-40 px-3 pb-[calc(0.8rem+env(safe-area-inset-bottom))]">
+        <div className="grid grid-cols-5 gap-1 rounded-[1.55rem] border border-white/10 bg-night/92 p-1.5 shadow-[0_24px_80px_rgba(16,12,10,0.4)] backdrop-blur">
           {mobilePrimaryNavigation.map((item) => {
             const Icon = item.icon;
             const active = pathname === item.href;
@@ -324,8 +323,10 @@ export function DashboardShell({
               <Link
                 key={item.href}
                 href={item.href}
-                className={`flex min-w-0 flex-col items-center gap-1 rounded-[1.1rem] px-2 py-2 text-[11px] font-semibold transition ${
-                  active ? "bg-ink text-white" : "text-ink/60"
+                className={`flex min-w-0 flex-col items-center gap-1 rounded-[1rem] px-1.5 py-2 text-[10px] font-semibold transition ${
+                  active
+                    ? "bg-ivory text-ink shadow-[0_10px_24px_rgba(255,248,238,0.18)]"
+                    : "text-ivory/60"
                 }`}
               >
                 <Icon size={18} />
@@ -336,7 +337,7 @@ export function DashboardShell({
           <button
             type="button"
             onClick={() => setMobileMenuOpen(true)}
-            className="flex min-w-0 flex-col items-center gap-1 rounded-[1.1rem] px-2 py-2 text-[11px] font-semibold text-ink/60 transition"
+            className="flex min-w-0 flex-col items-center gap-1 rounded-[1rem] px-1.5 py-2 text-[10px] font-semibold text-ivory/60 transition"
           >
             <Menu size={18} />
             <span className="truncate">Menu</span>

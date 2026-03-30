@@ -13,6 +13,14 @@ import { getActivityPresentation } from "@/lib/call-presenter";
 import { formatDateTime, formatPercent } from "@/lib/format";
 import { AnalyticsOverview, TrendBundle } from "@/lib/types";
 
+function isUrgentActivity(item: AnalyticsOverview["recent_activity"][number]) {
+  if (item.kind !== "call") {
+    return false;
+  }
+  const presentation = getActivityPresentation(item);
+  return presentation.needsAttention;
+}
+
 export default function HomePage() {
   const { restaurant, activeRestaurantId } = useWorkspace();
   const [overview, setOverview] = useState<AnalyticsOverview | null>(null);
@@ -24,7 +32,12 @@ export default function HomePage() {
     : 0;
   const conversionHeadline =
     overview?.booking_rate_today.status === "good" ? "Bene" : overview?.booking_rate_today.value ? "Da seguire" : "Partenza lenta";
-  const recentItems = overview?.recent_activity.slice(0, 4) ?? [];
+  const priorityItems = overview ? overview.recent_activity.filter(isUrgentActivity).slice(0, 3) : [];
+  const recentItems = overview
+    ? overview.recent_activity
+        .filter((item) => item.kind !== "call")
+        .slice(0, 2)
+    : [];
 
   useEffect(() => {
     if (!activeRestaurantId) {
@@ -78,31 +91,37 @@ export default function HomePage() {
         </div>
       ) : (
         <div className="space-y-6">
-          <div className="grid gap-4 lg:grid-cols-3">
-            <StatCard
-              label="Chiamate oggi"
-              value={overview.calls_today.value.toFixed(0)}
-              detail="Traffico telefonico in tempo reale"
-              delta={overview.calls_today.delta_vs_yesterday}
-              tone="terracotta"
-            />
-            <StatCard
-              label="Prenotazioni create"
-              value={overview.bookings_today.value.toFixed(0)}
-              detail="AI + dashboard + walk-in"
-              delta={overview.bookings_today.delta_vs_yesterday}
-              tone="olive"
-            />
-            <StatCard
-              label="Booking rate"
-              value={formatPercent(overview.booking_rate_today.value)}
-              detail="Conversione chiamate in tavoli"
-              delta={overview.booking_rate_today.delta_vs_yesterday}
-              tone="gold"
-            />
+          <div className="ui-snap-row -mx-1 flex snap-x gap-3 overflow-x-auto px-1 pb-1 sm:mx-0 sm:grid sm:grid-cols-2 sm:overflow-visible sm:px-0 lg:grid-cols-3">
+            <div className="min-w-[78vw] snap-start sm:min-w-0">
+              <StatCard
+                label="Chiamate oggi"
+                value={overview.calls_today.value.toFixed(0)}
+                detail="Traffico telefonico in tempo reale"
+                delta={overview.calls_today.delta_vs_yesterday}
+                tone="terracotta"
+              />
+            </div>
+            <div className="min-w-[78vw] snap-start sm:min-w-0">
+              <StatCard
+                label="Prenotazioni create"
+                value={overview.bookings_today.value.toFixed(0)}
+                detail="AI + dashboard + walk-in"
+                delta={overview.bookings_today.delta_vs_yesterday}
+                tone="olive"
+              />
+            </div>
+            <div className="min-w-[78vw] snap-start sm:col-span-2 sm:min-w-0 lg:col-span-1">
+              <StatCard
+                label="Booking rate"
+                value={formatPercent(overview.booking_rate_today.value)}
+                detail="Conversione chiamate in tavoli"
+                delta={overview.booking_rate_today.delta_vs_yesterday}
+                tone="gold"
+              />
+            </div>
           </div>
 
-          <div className="grid gap-6 xl:grid-cols-[1.3fr_0.7fr]">
+          <div className="order-2 grid gap-6 xl:order-1 xl:grid-cols-[1.3fr_0.7fr]">
             <SectionCard
               title="Trend ultimi 14 giorni"
               kicker={restaurant?.name ?? "Trend"}
@@ -133,9 +152,9 @@ export default function HomePage() {
             </SectionCard>
           </div>
 
-          <div className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
+          <div className="order-1 grid gap-6 xl:order-2 xl:grid-cols-[0.95fr_1.05fr]">
             <SectionCard
-              title="Attività recente"
+              title="Cosa guardare adesso"
               kicker="Priorità del giorno"
               action={
                 <Link
@@ -147,12 +166,12 @@ export default function HomePage() {
               }
             >
               <div className="space-y-3">
-                {recentItems.length === 0 ? (
+                {priorityItems.length === 0 && recentItems.length === 0 ? (
                   <p className="rounded-[1.4rem] border border-dashed border-stone px-4 py-8 text-sm text-ink/55">
-                    Nessuna attività registrata oggi. Le prenotazioni e le modifiche appariranno qui in tempo reale.
+                    Nessun segnale urgente nel periodo recente. Qui vedrai solo prenotazioni appena chiuse o chiamate da seguire.
                   </p>
                 ) : null}
-                {recentItems.map((item) => {
+                {priorityItems.map((item) => {
                   const presentation = getActivityPresentation(item);
                   return (
                   <article
@@ -162,6 +181,27 @@ export default function HomePage() {
                         ? "border-terracotta/25 bg-terracotta/5"
                         : "border-stone/75 bg-white/70"
                     }`}
+                  >
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                      <div>
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-terracotta/70">
+                          {presentation.eyebrow}
+                        </p>
+                        <p className="mt-2 font-semibold text-ink">{presentation.headline}</p>
+                        <p className="mt-2 text-sm leading-6 text-ink/65">{presentation.preview}</p>
+                      </div>
+                      <p className="text-xs uppercase tracking-[0.2em] text-ink/40 sm:text-right">
+                        {formatDateTime(item.created_at)}
+                      </p>
+                    </div>
+                  </article>
+                )})}
+                {recentItems.map((item) => {
+                  const presentation = getActivityPresentation(item);
+                  return (
+                  <article
+                    key={item.id}
+                    className="rounded-[1.35rem] border border-stone/75 bg-white/70 p-4"
                   >
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                       <div>

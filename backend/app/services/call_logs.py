@@ -96,6 +96,13 @@ def _normalize_call_status(*, raw_status: str | None = None, raw_success: str | 
     return CallStatus.unknown
 
 
+def _elevenlabs_analysis_says_booked(analysis: dict[str, Any]) -> bool:
+    """Check if ElevenLabs evaluation criteria indicate a reservation was completed."""
+    criteria = analysis.get("evaluation_criteria_results", {})
+    reservation = criteria.get("reservation_completed", {})
+    return reservation.get("result") == "success"
+
+
 def upsert_call_log_from_payload(
     db: Session,
     *,
@@ -128,9 +135,13 @@ def upsert_call_log_from_payload(
         db, restaurant_id=restaurant.id, call_start=started_dt, call_duration=duration
     )
     if db_outcome == CallOutcome.info_provided:
-        fallback = determine_outcome_from_summary(summary)
-        if fallback in {CallOutcome.escalated, CallOutcome.abandoned}:
-            db_outcome = fallback
+        # Trust ElevenLabs evaluation criteria as a secondary signal
+        if _elevenlabs_analysis_says_booked(analysis):
+            db_outcome = CallOutcome.booking_created
+        else:
+            fallback = determine_outcome_from_summary(summary)
+            if fallback in {CallOutcome.escalated, CallOutcome.abandoned}:
+                db_outcome = fallback
     if db_outcome == CallOutcome.info_provided and has_tool_error:
         db_outcome = CallOutcome.tool_error
 

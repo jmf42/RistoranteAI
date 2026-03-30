@@ -14,7 +14,7 @@ Current verified environment:
 
 Current live schema version last verified:
 
-- `0005 (head)`
+- `0005 (head)` — migration `0006` is local-only, not applied
 
 Treat the current environment as live staging unless intentionally cleaned and promoted.
 
@@ -35,7 +35,7 @@ SESSION_COOKIE_SECURE=true
 ALLOWED_ORIGINS=https://<frontend-domain>
 ```
 
-Required backend secrets:
+Required backend secrets (all in Google Secret Manager):
 
 ```env
 DATABASE_URL
@@ -66,8 +66,8 @@ NEXT_PUBLIC_API_BASE_URL=https://<backend-domain>
 
 Important:
 
-- `NEXT_PUBLIC_API_BASE_URL` must be present at build time
-- if it is wrong at build time, the dashboard can still ship with a bad API target
+- `NEXT_PUBLIC_API_BASE_URL` must be present at **build time**
+- if it is wrong at build time, the dashboard ships with a bad API target
 
 ## Database Rules
 
@@ -113,8 +113,86 @@ gcloud run deploy ristorante-ai-dashboard \
   --source dashboard \
   --clear-base-image \
   --allow-unauthenticated \
-  --set-build-env-vars NEXT_PUBLIC_API_BASE_URL=https://<backend-domain> \
-  --set-env-vars NODE_ENV=production,NEXT_PUBLIC_API_BASE_URL=https://<backend-domain>
+  --set-build-env-vars NEXT_PUBLIC_API_BASE_URL=https://ristorante-ai-api-jc7mvuujwq-ew.a.run.app \
+  --set-env-vars NODE_ENV=production,NEXT_PUBLIC_API_BASE_URL=https://ristorante-ai-api-jc7mvuujwq-ew.a.run.app
+```
+
+## Deploying Pending Backend Changes
+
+The following are implemented locally but not yet deployed. Deploy in this order:
+
+1. Apply migration 0006:
+   ```bash
+   cd backend
+   DATABASE_URL='<supabase-pooler-url>' uv run alembic upgrade head
+   ```
+
+2. Deploy backend:
+   ```bash
+   gcloud run deploy ristorante-ai-api \
+     --project ristorante-ai-20260324-9471 \
+     --region europe-west1 \
+     --source backend \
+     --clear-base-image \
+     --allow-unauthenticated
+   ```
+
+3. Re-enable post-call webhook in ElevenLabs (see section below).
+
+## Re-enabling the Post-Call Webhook
+
+The webhook was auto-disabled by ElevenLabs due to 401 errors.
+
+Root cause: `ELEVENLABS_WEBHOOK_SECRET` in GCP Secret Manager does not match what ElevenLabs uses to sign payloads.
+
+Fix:
+
+1. Find the webhook signing secret in ElevenLabs:
+   - Go to ElevenLabs → Agent settings → **Analysis** tab (or **Advanced** tab)
+   - Find the post-call webhook section — copy the signing secret shown there
+
+2. Update the secret in GCP Secret Manager:
+   ```bash
+   echo -n "THE_ELEVENLABS_SIGNING_KEY" | \
+     gcloud secrets versions add elevenlabs-webhook-secret \
+     --project ristorante-ai-20260324-9471 \
+     --data-file=-
+   ```
+
+3. Redeploy the backend (so Cloud Run picks up the new secret version).
+
+4. Re-enable the webhook in ElevenLabs:
+   - ElevenLabs → Agent settings → Analysis tab → toggle the webhook back on
+
+5. Make a test call and verify the backend returns `200` (not `401`).
+
+## Updating ElevenLabs Tool Secrets
+
+If `ELEVENLABS_TOOL_SECRET` changes in GCP Secret Manager, every tool in ElevenLabs must be updated to send the new value:
+
+- Header name: `X-Ristorante-Tool-Secret`
+- Tools: `check_availability`, `create_booking`, `find_booking`, `modify_booking`, `cancel_booking`
+
+Verify tools are working:
+```bash
+curl -i https://ristorante-ai-api-jc7mvuujwq-ew.a.run.app/api/tools/health \
+  -H "X-Ristorante-Tool-Secret: <secret>"
+```
+Expected: `{"status": "ok", "auth": "valid"}`
+
+## Updating a User's Name in the Database
+
+To rename a user directly:
+
+```sql
+UPDATE users
+SET full_name = 'New Name'
+WHERE email = 'user@example.com';
+```
+
+Connect via Cloud SQL Auth Proxy or:
+```bash
+gcloud sql connect <instance-name> --user=postgres --database=<db-name>
 ```
 
 ## Verification
@@ -133,30 +211,24 @@ npm run build
 Live smoke test:
 
 ```bash
-FRONTEND_URL=https://<frontend-domain> \
-BACKEND_URL=https://<backend-domain> \
-OWNER_EMAIL=<owner-email> \
-OWNER_PASSWORD=<owner-password> \
+FRONTEND_URL=https://ristorante-ai-dashboard-jc7mvuujwq-ew.a.run.app \
+BACKEND_URL=https://ristorante-ai-api-jc7mvuujwq-ew.a.run.app \
+OWNER_EMAIL=owner@trattoriamadonnina.it \
+OWNER_PASSWORD=<password> \
 python3 scripts/production_smoke_test.py
 ```
 
 Telephony smoke test:
 
 ```bash
-curl -i -X POST https://<backend-domain>/api/twilio/inbound \
+curl -i -X POST https://ristorante-ai-api-jc7mvuujwq-ew.a.run.app/api/twilio/inbound \
   --data 'From=%2B41779802809&To=%2B41225394205&CallSid=CA_smoke_test'
 ```
 
 Expected results:
 
-- healthy AI path:
-  - HTTP `200`
-  - XML response
-  - contains ElevenLabs `<Connect><Stream .../></Connect>` TwiML
-- fallback path:
-  - HTTP `200`
-  - XML response
-  - contains the Italian apology / transfer flow
+- healthy AI path: HTTP `200`, XML, contains ElevenLabs `<Connect><Stream .../></Connect>` TwiML
+- fallback path: HTTP `200`, XML, contains the Italian apology / transfer flow
 
 ## Common Failures
 
@@ -167,7 +239,7 @@ Check:
 - `NEXT_PUBLIC_API_BASE_URL`
 - `ALLOWED_ORIGINS`
 - cookie is `Secure` and `SameSite=None`
-- frontend requests use credentials
+- frontend requests use `credentials: "include"`
 
 ### Cloud Run deploy fails before image build
 
@@ -181,8 +253,17 @@ Check:
 
 Check:
 
-- `X-Ristorante-Tool-Secret`
-- value matches `ELEVENLABS_TOOL_SECRET`
+- header: `X-Ristorante-Tool-Secret`
+- value matches `ELEVENLABS_TOOL_SECRET` in GCP Secret Manager
+- test with `GET /api/tools/health` with the same header
+
+### Post-call webhook returns `401`
+
+Check:
+
+- `ELEVENLABS_WEBHOOK_SECRET` in GCP Secret Manager matches ElevenLabs signing key
+- the webhook is enabled in ElevenLabs agent settings (it may have been auto-disabled)
+- redeploy backend after updating the secret
 
 ### Personalization endpoint returns `404`
 
@@ -195,19 +276,30 @@ Check:
 
 Check:
 
-- `ELEVENLABS_API_KEY`
+- `ELEVENLABS_API_KEY` is set in GCP Secret Manager
 - Twilio console still points to backend `/api/twilio/inbound`
-- restaurant `twilio_phone`
-- restaurant `elevenlabs_agent_id`
+- restaurant `twilio_phone` matches the Twilio number
+- restaurant `elevenlabs_agent_id` is set
+
+### Calls fail with "quota limit exceeded"
+
+This is an ElevenLabs billing limit. Check your usage dashboard at elevenlabs.io → Settings → Subscription. Upgrade plan or wait for billing cycle to reset.
 
 ### Public `/healthz` returns Google 404
 
-That is expected on default Cloud Run `*.run.app` domains.
+Expected on default Cloud Run `*.run.app` domains. Use `/health` or `/readyz` instead.
 
-Use:
+### Agent is reading confirmation codes aloud
 
-- `/health`
-- `/readyz`
+Update the system prompt — remove step 7 from NUOVA PRENOTAZIONE and remove the code from CHIUSURA. See `docs/SYSTEM_PROMPT.md`.
+
+### Agent is asking for the caller's phone number
+
+Ensure `caller_phone` is a `dynamic_variable` (not `llm_prompt`) in every tool that has a `caller_phone` or `customer_phone` parameter in ElevenLabs.
+
+### Webhook auto-disabled in ElevenLabs
+
+ElevenLabs sends an email when this happens. Fix the secret mismatch (see section above) then re-enable from agent settings.
 
 ## Backup Reality
 

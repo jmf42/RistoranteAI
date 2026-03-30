@@ -21,19 +21,19 @@ export function StatCard({
 
   return (
     <article
-      className={`min-w-0 rounded-[1.75rem] border border-white/70 bg-gradient-to-br ${colorMap[tone]} p-5 shadow-card`}
+      className={`min-w-0 rounded-[1.75rem] border border-white/70 bg-gradient-to-br ${colorMap[tone]} p-4 shadow-card sm:p-5`}
     >
-      <p className="ui-kicker text-xs font-semibold uppercase tracking-[0.2em] text-ink/55 sm:tracking-[0.24em]">
-        {label}
-      </p>
-      <div className="mt-4 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-        <div className="min-w-0">
-          <p className="ui-display-stat-value font-display text-ink">{value}</p>
-          <p className="mt-2 text-sm text-ink/60">{detail}</p>
-        </div>
-        <div className="self-start rounded-full border border-current/20 bg-white/75 px-3 py-1 text-sm font-semibold sm:self-auto">
+      <div className="flex items-start justify-between gap-3">
+        <p className="ui-kicker max-w-[11rem] text-[11px] font-semibold uppercase tracking-[0.18em] text-ink/55 sm:max-w-none sm:text-xs sm:tracking-[0.24em]">
+          {label}
+        </p>
+        <div className="rounded-full border border-current/20 bg-white/75 px-2.5 py-1 text-xs font-semibold sm:px-3 sm:text-sm">
           {trendLabel(delta)}
         </div>
+      </div>
+      <div className="mt-4 min-w-0">
+        <p className="ui-display-stat-value font-display text-ink">{value}</p>
+        <p className="mt-2 max-w-[17rem] text-sm leading-6 text-ink/60">{detail}</p>
       </div>
     </article>
   );

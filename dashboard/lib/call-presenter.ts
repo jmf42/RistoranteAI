@@ -146,6 +146,36 @@ export function getCallPresentation(call: Pick<CallLog, "outcome" | "call_status
   };
 }
 
+export function isLowSignalCall(call: Pick<CallLog, "outcome" | "call_status" | "summary" | "duration_seconds">) {
+  const summary = call.summary.trim();
+  if (call.outcome === "booking_created" || call.outcome === "booking_modified" || call.outcome === "booking_cancelled") {
+    return false;
+  }
+  if (call.call_status === "failed" || call.outcome === "tool_error" || call.outcome === "abandoned") {
+    return false;
+  }
+  if (detectConfirmCall(summary)) {
+    return false;
+  }
+  if (detectSummaryMissing(summary) && call.duration_seconds <= 5) {
+    return true;
+  }
+  if (detectGreetingOnly(summary) && call.duration_seconds <= 20) {
+    return true;
+  }
+  return false;
+}
+
+export function isFollowUpCall(call: Pick<CallLog, "outcome" | "call_status" | "summary">) {
+  const summary = call.summary.trim();
+  return (
+    call.call_status === "failed" ||
+    call.outcome === "tool_error" ||
+    call.outcome === "abandoned" ||
+    detectTechFailure(summary)
+  );
+}
+
 function activityOutcomeFromTitle(title: string): CallOutcome {
   const lowered = title.toLowerCase();
   if (lowered.includes("booking created")) return "booking_created";

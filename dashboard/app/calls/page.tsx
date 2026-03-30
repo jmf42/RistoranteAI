@@ -11,6 +11,7 @@ import {
   formatCallOutcomeLabel,
   formatCallStatusLabel,
   getCallPresentation,
+  isLowSignalCall,
 } from "@/lib/call-presenter";
 import { formatDateTime } from "@/lib/format";
 import { CallLog, TranscriptResponse, TrendBundle } from "@/lib/types";
@@ -38,7 +39,9 @@ export default function CallsPage() {
   const [loadingTranscript, setLoadingTranscript] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const selectedCall = calls.find((call) => call.id === selectedCallId) ?? null;
-  const followUpCount = calls.filter(
+  const visibleCalls = calls.filter((call) => !isLowSignalCall(call));
+  const archivedCalls = calls.filter((call) => isLowSignalCall(call));
+  const followUpCount = visibleCalls.filter(
     (call) => call.call_status === "failed" || call.outcome === "tool_error" || call.outcome === "abandoned",
   ).length;
   const createdCount = calls.filter((call) => call.outcome === "booking_created").length;
@@ -129,24 +132,27 @@ export default function CallsPage() {
     >
       <div className="grid gap-6 xl:grid-cols-[0.58fr_0.42fr]">
         <div className="min-w-0 space-y-6">
-          <div className="grid gap-4 md:grid-cols-3">
-            <div className="rounded-[1.45rem] border border-stone/80 bg-white/80 p-4">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-terracotta/70">
+          <div className="ui-snap-row -mx-1 flex snap-x gap-3 overflow-x-auto px-1 pb-1 sm:mx-0 sm:grid sm:grid-cols-3 sm:overflow-visible sm:px-0">
+            <div className="min-w-[68vw] snap-start rounded-[1.45rem] border border-stone/80 bg-white/80 p-4 sm:min-w-0">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-terracotta/70">
                 Chiamate nel periodo
               </p>
-              <p className="mt-3 font-display text-4xl text-ink">{calls.length}</p>
+              <p className="mt-3 font-display text-4xl text-ink">{visibleCalls.length}</p>
+              <p className="mt-2 text-sm leading-6 text-ink/55">Solo le conversazioni che contano davvero per il servizio.</p>
             </div>
-            <div className="rounded-[1.45rem] border border-stone/80 bg-white/80 p-4">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-terracotta/70">
+            <div className="min-w-[68vw] snap-start rounded-[1.45rem] border border-stone/80 bg-white/80 p-4 sm:min-w-0">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-terracotta/70">
                 Prenotazioni chiuse
               </p>
               <p className="mt-3 font-display text-4xl text-ink">{createdCount}</p>
+              <p className="mt-2 text-sm leading-6 text-ink/55">Chiamate in cui l’agente ha chiuso davvero un tavolo.</p>
             </div>
-            <div className="rounded-[1.45rem] border border-stone/80 bg-white/80 p-4">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-terracotta/70">
+            <div className="min-w-[68vw] snap-start rounded-[1.45rem] border border-stone/80 bg-white/80 p-4 sm:min-w-0">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-terracotta/70">
                 Da seguire
               </p>
               <p className="mt-3 font-display text-4xl text-ink">{followUpCount}</p>
+              <p className="mt-2 text-sm leading-6 text-ink/55">Richieste dove serve controllo umano o un richiamo.</p>
             </div>
           </div>
 
@@ -196,9 +202,9 @@ export default function CallsPage() {
                   <div key={index} className="h-28 animate-pulse rounded-[1.45rem] bg-white/70" />
                 ))}
               </div>
-            ) : calls.length ? (
+            ) : visibleCalls.length ? (
               <div className="space-y-3">
-                {calls.map((call) => (
+                {visibleCalls.map((call) => (
                   <CallRow
                     key={call.id}
                     call={call}
@@ -208,6 +214,26 @@ export default function CallsPage() {
                     }}
                   />
                 ))}
+                {archivedCalls.length ? (
+                  <details className="rounded-[1.35rem] border border-dashed border-stone bg-ivory/35 p-4">
+                    <summary className="cursor-pointer text-sm font-semibold text-ink">
+                      Mostra archivio tecnico ({archivedCalls.length})
+                    </summary>
+                    <div className="mt-4 space-y-3">
+                      {archivedCalls.map((call) => (
+                        <CallRow
+                          key={call.id}
+                          call={call}
+                          isSelected={selectedCallId === call.id}
+                          onOpen={() => {
+                            void loadTranscript(call.id);
+                          }}
+                          compact
+                        />
+                      ))}
+                    </div>
+                  </details>
+                ) : null}
               </div>
             ) : (
               <p className="rounded-[1.45rem] border border-dashed border-stone px-4 py-10 text-sm text-ink/55">
@@ -331,10 +357,12 @@ function CallRow({
   call,
   isSelected,
   onOpen,
+  compact = false,
 }: {
   call: CallLog;
   isSelected: boolean;
   onOpen: () => void;
+  compact?: boolean;
 }) {
   const presentation = getCallPresentation(call);
 
@@ -366,7 +394,13 @@ function CallRow({
             ) : null}
           </div>
           <p className="mt-3 font-semibold text-ink">{presentation.headline}</p>
-          <p className="mt-2 text-sm leading-6 text-ink/65">{presentation.preview}</p>
+          {!compact ? (
+            <p className="mt-2 text-sm leading-6 text-ink/65">{presentation.preview}</p>
+          ) : (
+            <p className="mt-2 text-sm leading-6 text-ink/55">
+              {formatCallStatusLabel(call.call_status)} · dettaglio archiviato
+            </p>
+          )}
         </div>
         <div className="text-xs uppercase tracking-[0.22em] text-ink/40 sm:text-right">
           <p>{formatDateTime(call.started_at)}</p>

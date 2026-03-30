@@ -1,0 +1,1267 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Ristorante AI - Flow Map</title>
+    <style>
+      :root {
+        --bg: #0d1117;
+        --bg-2: #121826;
+        --panel: rgba(24, 32, 47, 0.96);
+        --panel-2: rgba(31, 40, 58, 0.98);
+        --line: rgba(255, 255, 255, 0.12);
+        --text: #f9f6ef;
+        --muted: #c8cfdb;
+        --gold: #f3b74d;
+        --coral: #ff7a59;
+        --green: #6fd08c;
+        --blue: #73b8ff;
+        --violet: #9b8cff;
+        --cyan: #65ddd6;
+        --shadow: 0 30px 80px rgba(0, 0, 0, 0.35);
+      }
+
+      * { box-sizing: border-box; }
+      html, body { margin: 0; min-height: 100%; }
+      body {
+        font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        color: var(--text);
+        background:
+          radial-gradient(circle at 50% 26%, rgba(115, 184, 255, 0.12), transparent 22%),
+          radial-gradient(circle at 20% 18%, rgba(255, 122, 89, 0.11), transparent 20%),
+          radial-gradient(circle at 82% 16%, rgba(155, 140, 255, 0.12), transparent 18%),
+          linear-gradient(180deg, var(--bg), var(--bg-2));
+      }
+
+      .page {
+        max-width: 1500px;
+        margin: 0 auto;
+        padding: 28px 18px 34px;
+      }
+
+      .hero {
+        border: 1px solid var(--line);
+        background:
+          radial-gradient(circle at 12% 0%, rgba(243, 183, 77, 0.08), transparent 22%),
+          radial-gradient(circle at 88% 0%, rgba(115, 184, 255, 0.08), transparent 20%),
+          linear-gradient(180deg, rgba(21, 29, 44, 0.98), rgba(13, 18, 28, 0.98));
+        border-radius: 30px;
+        padding: 28px;
+        box-shadow: var(--shadow);
+      }
+
+      .eyebrow {
+        display: inline-flex;
+        border-radius: 999px;
+        padding: 8px 12px;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: var(--gold);
+        background: rgba(243, 183, 77, 0.08);
+        border: 1px solid rgba(243, 183, 77, 0.18);
+      }
+
+      h1 {
+        margin: 16px 0 10px;
+        max-width: 980px;
+        font-size: clamp(2.4rem, 4vw, 5.2rem);
+        line-height: 0.92;
+        letter-spacing: -0.04em;
+      }
+
+      .hero p {
+        max-width: 900px;
+        margin: 0;
+        color: var(--muted);
+        font-size: 1.05rem;
+        line-height: 1.7;
+      }
+
+      .topbar {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        margin-top: 22px;
+      }
+
+      .phase-switch {
+        display: inline-flex;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+
+      .control-stack {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 12px;
+      }
+
+      .view-switch {
+        display: inline-flex;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+
+      .phase-btn {
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.04);
+        color: var(--text);
+        border-radius: 999px;
+        padding: 10px 14px;
+        font: inherit;
+        font-size: 0.92rem;
+        cursor: pointer;
+        transition: 180ms ease;
+      }
+
+      .view-btn {
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.04);
+        color: var(--text);
+        border-radius: 999px;
+        padding: 10px 14px;
+        font: inherit;
+        font-size: 0.92rem;
+        cursor: pointer;
+        transition: 180ms ease;
+      }
+
+      .phase-btn.active {
+        background: rgba(243, 183, 77, 0.14);
+        border-color: rgba(243, 183, 77, 0.3);
+        color: #fff4dc;
+      }
+
+      .view-btn.active {
+        background: rgba(115, 184, 255, 0.14);
+        border-color: rgba(115, 184, 255, 0.34);
+        color: #eaf5ff;
+      }
+
+      .story-pill {
+        border-radius: 999px;
+        padding: 10px 14px;
+        color: #e7ebf5;
+        background: rgba(255, 255, 255, 0.06);
+        border: 1px solid rgba(255,255,255,0.12);
+        font-size: 0.92rem;
+      }
+
+      .summary-row {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .summary-box {
+        border-radius: 20px;
+        padding: 16px 16px 18px;
+        background: linear-gradient(180deg, rgba(31, 40, 58, 0.98), rgba(20, 27, 40, 0.98));
+        border: 1px solid rgba(255,255,255,0.1);
+        box-shadow: 0 14px 30px rgba(0,0,0,0.18);
+      }
+
+      .summary-box .label {
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: #aeb7c6;
+      }
+
+      .summary-box .value {
+        margin-top: 10px;
+        color: #fbf8f2;
+        font-size: 1.04rem;
+        line-height: 1.35;
+        font-weight: 700;
+      }
+
+      .main {
+        display: grid;
+        grid-template-columns: minmax(0, 1.15fr) minmax(340px, 0.85fr);
+        gap: 18px;
+        margin-top: 18px;
+      }
+
+      .stage, .side {
+        border-radius: 30px;
+        border: 1px solid var(--line);
+        background: linear-gradient(180deg, rgba(17, 24, 36, 0.99), rgba(10, 15, 24, 0.99));
+        box-shadow: var(--shadow);
+      }
+
+      .stage { padding: 18px; }
+      .side { padding: 20px; position: sticky; top: 18px; align-self: start; }
+
+      .canvas {
+        position: relative;
+        min-height: 930px;
+        border-radius: 24px;
+        overflow: hidden;
+        background:
+          radial-gradient(circle at center, rgba(115, 184, 255, 0.12), transparent 24%),
+          radial-gradient(circle at 50% 55%, rgba(243, 183, 77, 0.05), transparent 18%),
+          linear-gradient(180deg, rgba(16, 23, 35, 1), rgba(10, 14, 22, 1));
+      }
+
+      .scene.hidden {
+        display: none;
+      }
+
+      .orbital {
+        position: absolute;
+        inset: 50% auto auto 50%;
+        transform: translate(-50%, -50%);
+        border-radius: 50%;
+        border: 1px dashed rgba(255, 255, 255, 0.12);
+      }
+
+      .orbital.one { width: 320px; height: 320px; }
+      .orbital.two { width: 660px; height: 660px; }
+
+      .pulse {
+        position: absolute;
+        inset: 50% auto auto 50%;
+        width: 380px;
+        height: 380px;
+        transform: translate(-50%, -50%);
+        border-radius: 50%;
+        background: radial-gradient(circle, rgba(115, 184, 255, 0.16), transparent 70%);
+        filter: blur(18px);
+      }
+
+      .node {
+        position: absolute;
+        width: 220px;
+        padding: 16px;
+        border-radius: 24px;
+        background: linear-gradient(180deg, rgba(31, 40, 58, 0.98), rgba(20, 27, 40, 0.98));
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        box-shadow: 0 20px 52px rgba(0, 0, 0, 0.34);
+        backdrop-filter: blur(10px);
+        cursor: pointer;
+        transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease, opacity 180ms ease;
+      }
+
+      .node:hover { transform: translateY(-3px); }
+      .node.active {
+        border-color: rgba(243, 183, 77, 0.5);
+        box-shadow: 0 24px 64px rgba(243, 183, 77, 0.22);
+      }
+      .node.muted { opacity: 0.58; }
+
+      .node.agent {
+        left: 50%;
+        top: 50%;
+        width: 280px;
+        transform: translate(-50%, -50%);
+        text-align: center;
+        z-index: 3;
+        background:
+          radial-gradient(circle at 50% 20%, rgba(243, 183, 77, 0.22), transparent 48%),
+          linear-gradient(180deg, rgba(36, 45, 66, 0.99), rgba(20, 27, 40, 0.99));
+      }
+      .node.agent:hover { transform: translate(-50%, calc(-50% - 3px)); }
+      .node.agent.active { transform: translate(-50%, -50%); }
+
+      .node.customer { left: 42px; top: 338px; }
+      .node.phone { right: 42px; top: 338px; }
+      .node.setup { left: 50%; top: 48px; width: 290px; transform: translateX(-50%); }
+      .node.logic { left: 50%; bottom: 180px; width: 290px; transform: translateX(-50%); }
+      .node.database { left: 78px; bottom: 74px; }
+      .node.dashboard { right: 78px; bottom: 74px; }
+      .node.summary { left: 50%; bottom: 30px; width: 250px; transform: translateX(-50%); }
+
+      .badge {
+        display: inline-flex;
+        border-radius: 999px;
+        padding: 6px 10px;
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: white;
+      }
+
+      .customer .badge { background: var(--coral); }
+      .phone .badge { background: var(--gold); color: #2c2114; }
+      .setup .badge { background: var(--green); color: #122117; }
+      .agent .badge { background: var(--blue); color: #102132; }
+      .logic .badge { background: var(--gold); color: #2c2114; }
+      .database .badge { background: var(--violet); }
+      .dashboard .badge { background: #dde2f3; color: #20283b; }
+      .summary .badge { background: var(--cyan); color: #10282a; }
+
+      .node h3 {
+        margin: 10px 0 8px;
+        font-size: 1.26rem;
+        line-height: 1.05;
+        color: #fffaf2;
+      }
+
+      .node p {
+        margin: 0;
+        color: #ccd3de;
+        font-size: 0.93rem;
+        line-height: 1.5;
+      }
+
+      .mini {
+        margin-top: 10px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+
+      .mini span {
+        border-radius: 999px;
+        padding: 6px 9px;
+        font-size: 0.77rem;
+        color: #fbf8f2;
+        background: rgba(255, 255, 255, 0.08);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+      }
+
+      .links {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        pointer-events: none;
+      }
+
+      .edge path {
+        fill: none;
+        stroke: rgba(255, 255, 255, 0.48);
+        stroke-width: 3.8;
+        stroke-linecap: round;
+        transition: stroke 180ms ease, opacity 180ms ease, stroke-width 180ms ease;
+      }
+
+      .edge.active path {
+        stroke: rgba(243, 183, 77, 0.98);
+        stroke-width: 4.6;
+        filter: drop-shadow(0 0 12px rgba(243, 183, 77, 0.28));
+      }
+
+      .edge.muted path { opacity: 0.22; }
+      .edge.hidden { display: none; }
+
+      .edge-label text {
+        fill: #f4efe7;
+        font-size: 13px;
+        font-weight: 700;
+        paint-order: stroke;
+        stroke: rgba(11, 16, 24, 0.92);
+        stroke-width: 8px;
+        stroke-linejoin: round;
+      }
+
+      .side h2 {
+        margin: 0;
+        font-size: clamp(1.8rem, 3vw, 2.7rem);
+        line-height: 0.96;
+      }
+
+      .side .lead {
+        margin: 12px 0 18px;
+        color: var(--muted);
+        line-height: 1.65;
+      }
+
+      .grid {
+        display: grid;
+        gap: 12px;
+      }
+
+      .card {
+        border-radius: 22px;
+        background: linear-gradient(180deg, rgba(34, 44, 64, 0.98), rgba(24, 31, 46, 0.98));
+        border: 1px solid rgba(255,255,255,0.1);
+        padding: 14px;
+        box-shadow: 0 12px 26px rgba(0,0,0,0.18);
+      }
+
+      .card h4 {
+        margin: 0 0 10px;
+        color: var(--gold);
+        font-size: 0.78rem;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+      }
+
+      .chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .chip {
+        border-radius: 999px;
+        padding: 7px 10px;
+        background: rgba(255,255,255,0.08);
+        border: 1px solid rgba(255,255,255,0.12);
+        font-size: 0.84rem;
+        color: #fbf8f2;
+      }
+
+      .steps {
+        margin: 0;
+        padding-left: 18px;
+        color: var(--text);
+      }
+
+      .steps li {
+        margin: 0 0 8px;
+        line-height: 1.45;
+      }
+
+      .note {
+        margin-top: 14px;
+        border-radius: 18px;
+        padding: 16px;
+        background: linear-gradient(180deg, rgba(255, 122, 89, 0.1), rgba(255,255,255,0.03));
+        border: 1px solid rgba(255, 122, 89, 0.16);
+        color: #ffe9e0;
+      }
+
+      .legend {
+        margin-top: 14px;
+        color: #b5becd;
+        font-size: 0.9rem;
+        line-height: 1.55;
+      }
+
+      .legend strong {
+        color: #fffaf2;
+      }
+
+      .flow-scene {
+        padding: 18px;
+      }
+
+      .flow-shell {
+        position: relative;
+        min-height: 930px;
+        border-radius: 24px;
+        overflow: hidden;
+        padding: 24px;
+        background:
+          radial-gradient(circle at 14% 10%, rgba(115, 184, 255, 0.12), transparent 20%),
+          radial-gradient(circle at 84% 8%, rgba(243, 183, 77, 0.13), transparent 20%),
+          linear-gradient(180deg, #121a28, #0b111b);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+      }
+
+      .flow-shell::before {
+        content: "";
+        position: absolute;
+        left: 50%;
+        top: 110px;
+        bottom: 110px;
+        width: 6px;
+        transform: translateX(-50%);
+        background: linear-gradient(180deg, rgba(115, 184, 255, 0.92), rgba(243, 183, 77, 0.92), rgba(111, 208, 140, 0.86));
+        border-radius: 999px;
+        box-shadow: 0 0 0 8px rgba(255, 255, 255, 0.03);
+      }
+
+      .flow-head {
+        max-width: 680px;
+        margin-bottom: 24px;
+        padding: 18px 20px;
+        border-radius: 22px;
+        background: linear-gradient(180deg, rgba(20, 28, 42, 0.92), rgba(14, 20, 31, 0.92));
+        border: 1px solid rgba(255, 255, 255, 0.08);
+      }
+
+      .flow-head h3 {
+        margin: 0;
+        font-size: 1.7rem;
+        color: #fff8ee;
+      }
+
+      .flow-head p {
+        margin: 8px 0 0;
+        color: #cfd7e5;
+        line-height: 1.6;
+      }
+
+      .flow-list {
+        position: relative;
+        display: grid;
+        gap: 18px;
+      }
+
+      .flow-step {
+        --step-accent: #73b8ff;
+        --step-accent-deep: #1a4672;
+        --step-chip-bg: rgba(255, 255, 255, 0.82);
+        position: relative;
+        width: min(520px, calc(100% - 90px));
+        border-radius: 24px;
+        background: linear-gradient(180deg, rgba(255, 249, 240, 0.98), rgba(244, 236, 224, 0.98));
+        border: 1px solid rgba(91, 106, 128, 0.16);
+        box-shadow: 0 24px 54px rgba(2, 8, 20, 0.28);
+        padding: 18px 18px 18px 22px;
+        text-align: left;
+        transition: opacity 180ms ease, transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
+        cursor: pointer;
+        color: #182232;
+      }
+
+      .flow-step::after {
+        content: "";
+        position: absolute;
+        left: 0;
+        top: 14px;
+        bottom: 14px;
+        width: 7px;
+        border-radius: 999px;
+        background: linear-gradient(180deg, var(--step-accent), var(--step-accent-deep));
+      }
+
+      .flow-step:hover {
+        transform: translateY(-3px);
+      }
+
+      .flow-step.muted {
+        opacity: 0.62;
+        filter: saturate(0.82);
+      }
+
+      .flow-step.active {
+        border-color: rgba(255, 248, 238, 0.92);
+        box-shadow: 0 28px 60px rgba(0, 0, 0, 0.32), 0 0 0 1px rgba(255, 255, 255, 0.16);
+      }
+
+      .flow-step.left {
+        justify-self: start;
+      }
+
+      .flow-step.right {
+        justify-self: end;
+      }
+
+      .flow-step.center {
+        justify-self: center;
+      }
+
+      .flow-step::before {
+        content: "";
+        position: absolute;
+        top: 50%;
+        width: 22px;
+        height: 22px;
+        border-radius: 50%;
+        background: #fff8ee;
+        border: 5px solid var(--step-accent);
+        box-shadow: 0 0 0 10px rgba(255, 255, 255, 0.05);
+      }
+
+      .flow-step.left::before {
+        right: -52px;
+        transform: translateY(-50%);
+      }
+
+      .flow-step.right::before {
+        left: -52px;
+        transform: translateY(-50%);
+      }
+
+      .flow-step.center::before {
+        left: 50%;
+        top: -40px;
+        transform: translateX(-50%);
+      }
+
+      .flow-step .step-top {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 10px;
+      }
+
+      .flow-step .num {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 34px;
+        height: 34px;
+        border-radius: 50%;
+        font-size: 0.92rem;
+        font-weight: 800;
+        color: #fffaf2;
+        background: linear-gradient(180deg, var(--step-accent), var(--step-accent-deep));
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2);
+      }
+
+      .flow-step h4 {
+        margin: 0;
+        font-size: 1.2rem;
+        color: #182232;
+      }
+
+      .flow-step p {
+        margin: 0;
+        color: #596475;
+        line-height: 1.55;
+      }
+
+      .flow-pills {
+        margin-top: 12px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .flow-pills span {
+        border-radius: 999px;
+        padding: 6px 10px;
+        font-size: 0.8rem;
+        background: var(--step-chip-bg);
+        border: 1px solid rgba(24, 34, 50, 0.12);
+        color: #2d3a4e;
+        font-weight: 600;
+      }
+
+      .flow-step[data-node="customer"] {
+        --step-accent: #ff7a59;
+        --step-accent-deep: #b4482c;
+      }
+
+      .flow-step[data-node="phone"] {
+        --step-accent: #f3b74d;
+        --step-accent-deep: #9c6a10;
+      }
+
+      .flow-step[data-node="logic"] {
+        --step-accent: #73b8ff;
+        --step-accent-deep: #1e5587;
+      }
+
+      .flow-step[data-node="setup"] {
+        --step-accent: #6fd08c;
+        --step-accent-deep: #2f7e45;
+      }
+
+      .flow-step[data-node="agent"] {
+        --step-accent: #5877ff;
+        --step-accent-deep: #21378a;
+      }
+
+      .flow-step[data-node="database"] {
+        --step-accent: #9b8cff;
+        --step-accent-deep: #5747bd;
+      }
+
+      .flow-step[data-node="dashboard"] {
+        --step-accent: #5e6b80;
+        --step-accent-deep: #313b4a;
+      }
+
+      .flow-step[data-node="summary"] {
+        --step-accent: #65ddd6;
+        --step-accent-deep: #15716d;
+      }
+
+      @media (max-width: 1280px) {
+        .main { grid-template-columns: 1fr; }
+        .side { position: static; }
+      }
+
+      @media (max-width: 980px) {
+        .summary-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        .canvas { min-height: 1240px; }
+        .orbital, .pulse, .links { display: none; }
+        .node,
+        .node.setup,
+        .node.agent,
+        .node.customer,
+        .node.phone,
+        .node.logic,
+        .node.database,
+        .node.dashboard,
+        .node.summary {
+          left: 50%;
+          right: auto;
+          width: min(88vw, 330px);
+          transform: translateX(-50%);
+        }
+        .node.setup { top: 36px; }
+        .node.customer { top: 190px; }
+        .node.agent { top: 350px; transform: translate(-50%, -50%); }
+        .node.phone { top: 500px; }
+        .node.logic { top: 660px; bottom: auto; }
+        .node.database { top: 830px; bottom: auto; }
+        .node.dashboard { top: 995px; bottom: auto; }
+        .node.summary { top: 1160px; bottom: auto; }
+
+        .flow-shell::before { display: none; }
+        .flow-step,
+        .flow-step.left,
+        .flow-step.right,
+        .flow-step.center {
+          justify-self: stretch;
+          width: 100%;
+        }
+        .flow-step::before,
+        .flow-step.left::before,
+        .flow-step.right::before,
+        .flow-step.center::before {
+          display: none;
+        }
+      }
+
+      @media (max-width: 760px) {
+        .page { padding: 14px 10px 24px; }
+        .hero, .stage, .side { padding: 16px; }
+        .summary-row { grid-template-columns: 1fr; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <section class="hero">
+        <div class="eyebrow">Rebuilt from scratch</div>
+        <h1>What the AI gets, uses, and sends back.</h1>
+        <p>
+          The agent is at the center. Everything around it either gives it information,
+          helps it answer, or receives the result.
+        </p>
+
+        <div class="topbar">
+          <div class="control-stack">
+            <div class="view-switch">
+              <button class="view-btn active" data-view="agent" type="button">Agent view</button>
+              <button class="view-btn" data-view="flow" type="button">Flow view</button>
+            </div>
+            <div class="phase-switch">
+              <button class="phase-btn active" data-phase="start" type="button">Call starts</button>
+              <button class="phase-btn" data-phase="during" type="button">During the call</button>
+              <button class="phase-btn" data-phase="after" type="button">After the call</button>
+            </div>
+          </div>
+          <div class="story-pill" id="story-pill">Start: the call arrives and the app prepares the AI.</div>
+        </div>
+      </section>
+
+      <div class="summary-row" style="margin-top:18px">
+        <div class="summary-box">
+          <div class="label">Main idea</div>
+          <div class="value">The AI speaks, but the app decides what is true.</div>
+        </div>
+        <div class="summary-box">
+          <div class="label">What feeds the AI</div>
+          <div class="value">Caller details, restaurant rules, live answers from the app.</div>
+        </div>
+        <div class="summary-box">
+          <div class="label">What the AI sends back</div>
+          <div class="value">Spoken answers, booking requests, and a summary after the call.</div>
+        </div>
+        <div class="summary-box">
+          <div class="label">Current caveat</div>
+          <div class="value">The after-call summary path is still partly broken in live staging.</div>
+        </div>
+      </div>
+
+      <main class="main">
+        <section class="stage">
+          <div class="scene agent-scene">
+          <div class="canvas">
+            <div class="pulse"></div>
+            <div class="orbital one"></div>
+            <div class="orbital two"></div>
+
+            <svg class="links" viewBox="0 0 1100 900" preserveAspectRatio="none">
+              <g class="edge" data-edge="customer-agent" data-phase="start during">
+                <path d="M 250 405 C 350 405, 405 425, 455 435"></path>
+                <g class="edge-label"><text x="325" y="380">customer asks</text></g>
+              </g>
+
+              <g class="edge" data-edge="phone-agent" data-phase="start during">
+                <path d="M 850 405 C 760 405, 710 425, 645 435"></path>
+                <g class="edge-label"><text x="730" y="380">caller number + restaurant number</text></g>
+              </g>
+
+              <g class="edge" data-edge="setup-agent" data-phase="start during">
+                <path d="M 550 180 C 550 250, 550 305, 550 340"></path>
+                <g class="edge-label"><text x="585" y="260">hours + rules + greeting</text></g>
+              </g>
+
+              <g class="edge" data-edge="agent-logic" data-phase="during">
+                <path d="M 560 510 C 565 560, 560 595, 555 640"></path>
+                <g class="edge-label"><text x="590" y="580">check / create / change booking</text></g>
+              </g>
+
+              <g class="edge" data-edge="logic-agent" data-phase="start during">
+                <path d="M 540 640 C 535 595, 535 560, 540 510"></path>
+                <g class="edge-label"><text x="370" y="580">live context + booking answer</text></g>
+              </g>
+
+              <g class="edge" data-edge="logic-database" data-phase="during after">
+                <path d="M 430 720 C 365 748, 305 772, 260 795"></path>
+                <g class="edge-label"><text x="255" y="748">read records + save changes</text></g>
+              </g>
+
+              <g class="edge" data-edge="logic-dashboard" data-phase="during after">
+                <path d="M 670 720 C 735 748, 795 772, 840 795"></path>
+                <g class="edge-label"><text x="735" y="748">show team the result</text></g>
+              </g>
+
+              <g class="edge" data-edge="dashboard-setup" data-phase="during after">
+                <path d="M 850 780 C 830 650, 760 360, 665 210"></path>
+                <g class="edge-label"><text x="820" y="540">team updates rules and setup</text></g>
+              </g>
+
+              <g class="edge" data-edge="agent-summary" data-phase="after">
+                <path d="M 550 510 C 550 635, 550 705, 550 760"></path>
+                <g class="edge-label"><text x="585" y="690">summary + transcript</text></g>
+              </g>
+
+              <g class="edge" data-edge="summary-logic" data-phase="after">
+                <path d="M 550 830 C 550 800, 550 770, 550 740"></path>
+                <g class="edge-label"><text x="585" y="815">save summary</text></g>
+              </g>
+            </svg>
+
+            <button class="node setup" data-node="setup" type="button">
+              <span class="badge">Restaurant setup</span>
+              <h3>What the AI should know</h3>
+              <p>The business rules and restaurant context saved by the team.</p>
+              <div class="mini"><span>hours</span><span>rules</span><span>greeting</span></div>
+            </button>
+
+            <button class="node customer" data-node="customer" type="button">
+              <span class="badge">Customer</span>
+              <h3>The caller</h3>
+              <p>The person asking for a table or asking a question.</p>
+              <div class="mini"><span>request</span><span>date</span><span>time</span></div>
+            </button>
+
+            <button class="node agent active" data-node="agent" type="button">
+              <span class="badge">AI Agent</span>
+              <h3>ElevenLabs</h3>
+              <p>Uses instructions, context, and live answers from the app to speak with the caller.</p>
+              <div class="mini"><span>talks</span><span>asks for checks</span><span>returns answers</span></div>
+            </button>
+
+            <button class="node phone" data-node="phone" type="button">
+              <span class="badge">Phone system</span>
+              <h3>Twilio</h3>
+              <p>Takes the call and passes the phone details into the app and the agent flow.</p>
+              <div class="mini"><span>caller number</span><span>restaurant number</span></div>
+            </button>
+
+            <button class="node logic" data-node="logic" type="button">
+              <span class="badge">App logic</span>
+              <h3>The control center</h3>
+              <p>Builds context, checks the rules, reads the records, and saves the result.</p>
+              <div class="mini"><span>decides truth</span><span>checks bookings</span></div>
+            </button>
+
+            <button class="node database" data-node="database" type="button">
+              <span class="badge">Database</span>
+              <h3>Shared memory</h3>
+              <p>Stores setup, bookings, customer history, and call records.</p>
+              <div class="mini"><span>setup</span><span>bookings</span><span>history</span></div>
+            </button>
+
+            <button class="node dashboard" data-node="dashboard" type="button">
+              <span class="badge">Dashboard</span>
+              <h3>The team view</h3>
+              <p>Shows the result to the team and lets them change what future calls will use.</p>
+              <div class="mini"><span>calls</span><span>bookings</span><span>settings</span></div>
+            </button>
+
+            <button class="node summary" data-node="summary" type="button">
+              <span class="badge">After call</span>
+              <h3>Call summary</h3>
+              <p>What should be saved after the conversation ends.</p>
+              <div class="mini"><span>summary</span><span>transcript</span></div>
+            </button>
+          </div>
+          </div>
+
+          <div class="scene flow-scene hidden">
+            <div class="flow-shell">
+              <div class="flow-head">
+                <h3>End-to-end process</h3>
+                <p>
+                  This is the same story as the agent map, but in straight sequence from first phone ring to saved result.
+                </p>
+              </div>
+
+              <div class="flow-list">
+                <button class="flow-step left" data-node="customer" data-flow-phase="start during" type="button">
+                  <div class="step-top"><span class="num">1</span><h4>Customer calls</h4></div>
+                  <p>The caller asks for a booking or information.</p>
+                  <div class="flow-pills"><span>request</span><span>date</span><span>time</span><span>party size</span></div>
+                </button>
+
+                <button class="flow-step right" data-node="phone" data-flow-phase="start during" type="button">
+                  <div class="step-top"><span class="num">2</span><h4>Twilio captures the phone details</h4></div>
+                  <p>The phone system knows who is calling and which restaurant number was dialed.</p>
+                  <div class="flow-pills"><span>caller number</span><span>restaurant number</span><span>call ID</span></div>
+                </button>
+
+                <button class="flow-step left" data-node="logic" data-flow-phase="start during" type="button">
+                  <div class="step-top"><span class="num">3</span><h4>The app matches the right restaurant</h4></div>
+                  <p>The app figures out which restaurant this call belongs to.</p>
+                  <div class="flow-pills"><span>match restaurant</span><span>load rules</span></div>
+                </button>
+
+                <button class="flow-step right" data-node="setup" data-flow-phase="start during" type="button">
+                  <div class="step-top"><span class="num">4</span><h4>The app prepares the AI context</h4></div>
+                  <p>The agent gets the restaurant setup it needs to answer correctly.</p>
+                  <div class="flow-pills"><span>hours</span><span>rules</span><span>greeting</span><span>style</span></div>
+                </button>
+
+                <button class="flow-step center" data-node="agent" data-flow-phase="start during" type="button">
+                  <div class="step-top"><span class="num">5</span><h4>The AI speaks with the caller</h4></div>
+                  <p>The AI answers using its instructions plus the live restaurant context.</p>
+                  <div class="flow-pills"><span>spoken answer</span><span>next question</span></div>
+                </button>
+
+                <button class="flow-step left" data-node="logic" data-flow-phase="during" type="button">
+                  <div class="step-top"><span class="num">6</span><h4>The AI asks the app for real answers</h4></div>
+                  <p>During the call, the app checks availability and handles booking actions.</p>
+                  <div class="flow-pills"><span>check availability</span><span>create booking</span><span>change booking</span><span>cancel booking</span></div>
+                </button>
+
+                <button class="flow-step right" data-node="database" data-flow-phase="during after" type="button">
+                  <div class="step-top"><span class="num">7</span><h4>The app reads and updates the database</h4></div>
+                  <p>This is where bookings, customer records, and call history are stored.</p>
+                  <div class="flow-pills"><span>save booking</span><span>customer history</span><span>call record</span></div>
+                </button>
+
+                <button class="flow-step left" data-node="dashboard" data-flow-phase="during after" type="button">
+                  <div class="step-top"><span class="num">8</span><h4>The dashboard shows the same result</h4></div>
+                  <p>The team sees the same truth the AI just used.</p>
+                  <div class="flow-pills"><span>calls</span><span>bookings</span><span>settings</span></div>
+                </button>
+
+                <button class="flow-step right" data-node="summary" data-flow-phase="after" type="button">
+                  <div class="step-top"><span class="num">9</span><h4>After the call, the summary should be saved</h4></div>
+                  <p>The AI should send back the summary and transcript so they become part of call history.</p>
+                  <div class="flow-pills"><span>summary</span><span>transcript</span></div>
+                </button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <aside class="side">
+          <h2 id="title">ElevenLabs</h2>
+          <p class="lead" id="lead">The thing in the middle. It talks to the caller, but it relies on the app for the real facts.</p>
+
+          <div class="grid">
+            <section class="card">
+              <h4>Gets</h4>
+              <div class="chips" id="gets"></div>
+            </section>
+
+            <section class="card">
+              <h4>Sends</h4>
+              <div class="chips" id="sends"></div>
+            </section>
+
+            <section class="card">
+              <h4>Gets info from</h4>
+              <div class="chips" id="from"></div>
+            </section>
+
+            <section class="card">
+              <h4>Passes info to</h4>
+              <div class="chips" id="to"></div>
+            </section>
+
+            <section class="card">
+              <h4>What happens here</h4>
+              <ol class="steps" id="steps"></ol>
+            </section>
+          </div>
+
+          <div class="note" id="note"></div>
+          <div class="legend" id="legend">
+            <strong>Tip:</strong> start with the whole phase, then click a box only when you want to zoom into one part.
+          </div>
+        </aside>
+      </main>
+    </div>
+
+    <script>
+      const storyByPhase = {
+        start: "Start: the call arrives, the app prepares the AI.",
+        during: "During: the AI asks the app for real booking answers.",
+        after: "After: the summary should come back and be saved."
+      };
+
+      const details = {
+        all: {
+          title: "Whole flow",
+          lead: "This shows the full story for the current phase, without isolating one box.",
+          gets: ["phone details", "restaurant setup", "live booking answers", "team changes"],
+          sends: ["spoken answer", "booking result", "saved records", "team view"],
+          from: ["caller", "Twilio", "restaurant setup", "database", "dashboard"],
+          to: ["AI agent", "app logic", "database", "dashboard", "after-call summary"],
+          steps: [
+            "The call arrives and the app prepares the AI.",
+            "The AI asks the app for real answers during the call.",
+            "The result is saved and shown to the team."
+          ],
+          note: "Use this view when explaining the whole system from scratch."
+        },
+        agent: {
+          title: "ElevenLabs",
+          lead: "The thing in the middle. It talks to the caller, but it relies on the app for the real facts.",
+          gets: ["agent instructions", "restaurant context", "caller details", "live booking answers"],
+          sends: ["spoken answer", "booking request", "summary after the call"],
+          from: ["restaurant setup", "app logic", "phone system"],
+          to: ["caller", "app logic", "after-call summary"],
+          steps: [
+            "Starts with instructions and restaurant context.",
+            "Asks the app for help when it needs a real answer.",
+            "Answers the caller in real time."
+          ],
+          note: "The AI is the voice in the middle, but it is not the final source of truth."
+        },
+        customer: {
+          title: "The caller",
+          lead: "The person bringing the real-world need into the system.",
+          gets: ["spoken answer", "confirmation", "alternative options"],
+          sends: ["request", "preferred day", "preferred time", "party size"],
+          from: ["none at the start"],
+          to: ["phone system", "AI agent"],
+          steps: [
+            "Calls the restaurant.",
+            "Explains what they want.",
+            "Receives an answer from the AI."
+          ],
+          note: "Everything starts here."
+        },
+        phone: {
+          title: "Twilio",
+          lead: "The phone bridge. It takes the call and carries the phone details into the flow.",
+          gets: ["incoming phone call"],
+          sends: ["caller number", "restaurant number", "call ID", "live call connection"],
+          from: ["caller", "app logic"],
+          to: ["app logic", "AI agent"],
+          steps: [
+            "Receives the call.",
+            "Passes the phone facts into the app.",
+            "Connects the live call to the AI."
+          ],
+          note: "It carries the call. It does not decide bookings."
+        },
+        setup: {
+          title: "Restaurant setup",
+          lead: "The saved business context that tells the AI how this restaurant works.",
+          gets: ["team changes from the dashboard"],
+          sends: ["hours", "closures", "booking rules", "greeting", "style notes"],
+          from: ["dashboard", "database"],
+          to: ["app logic", "AI agent"],
+          steps: [
+            "Stores how the restaurant operates.",
+            "Tells the app what the AI should know.",
+            "Shapes future calls."
+          ],
+          note: "This is one of the main places the AI gets context from."
+        },
+        logic: {
+          title: "The control center",
+          lead: "This is where the real rules live. It decides what is true and what can happen.",
+          gets: ["phone details", "restaurant setup", "AI booking requests", "team updates"],
+          sends: ["live context", "availability answer", "booking result", "saved records", "dashboard data"],
+          from: ["phone system", "restaurant setup", "database", "dashboard", "AI agent"],
+          to: ["AI agent", "database", "dashboard"],
+          steps: [
+            "Matches the right restaurant.",
+            "Builds context for the AI.",
+            "Checks the rules and saves the result."
+          ],
+          note: "If someone asks where the AI gets real facts from, this is the main answer."
+        },
+        database: {
+          title: "Shared memory",
+          lead: "The stored truth of the app.",
+          gets: ["restaurant updates", "new bookings", "booking changes", "call records"],
+          sends: ["restaurant setup", "booking history", "customer history", "call history"],
+          from: ["app logic"],
+          to: ["app logic", "dashboard"],
+          steps: [
+            "Stores setup.",
+            "Stores booking and customer history.",
+            "Feeds the app and dashboard."
+          ],
+          note: "The AI and the team both depend on this same memory."
+        },
+        dashboard: {
+          title: "The team view",
+          lead: "Shows the result to the team and lets them change what future calls will use.",
+          gets: ["calls", "bookings", "capacity", "restaurant settings"],
+          sends: ["updated hours", "updated rules", "updated greeting", "manual booking changes"],
+          from: ["app logic"],
+          to: ["app logic", "restaurant setup"],
+          steps: [
+            "Shows the current result.",
+            "Lets the team change settings and bookings.",
+            "Changes future AI behavior."
+          ],
+          note: "The dashboard does not answer the caller directly, but it changes future answers."
+        },
+        summary: {
+          title: "Call summary",
+          lead: "What should come back after the conversation ends.",
+          gets: ["summary", "transcript"],
+          sends: ["call record to save"],
+          from: ["AI agent"],
+          to: ["app logic", "database"],
+          steps: [
+            "Collects the summary after the call.",
+            "Passes it back to be saved.",
+            "Should become part of call history."
+          ],
+          note: "This is the main live staging caveat today: this path is still partly broken."
+        }
+      };
+
+      const phaseEdges = {
+        start: ["customer-agent", "phone-agent", "setup-agent", "logic-agent"],
+        during: ["customer-agent", "phone-agent", "setup-agent", "logic-agent", "agent-logic", "logic-database", "logic-dashboard", "dashboard-setup"],
+        after: ["agent-summary", "summary-logic", "logic-database", "logic-dashboard"]
+      };
+
+      const nodeEdges = {
+        agent: ["customer-agent", "phone-agent", "setup-agent", "logic-agent", "agent-logic", "agent-summary"],
+        customer: ["customer-agent"],
+        phone: ["phone-agent"],
+        setup: ["setup-agent", "dashboard-setup"],
+        logic: ["logic-agent", "agent-logic", "logic-database", "logic-dashboard", "summary-logic"],
+        database: ["logic-database"],
+        dashboard: ["logic-dashboard", "dashboard-setup"],
+        summary: ["agent-summary", "summary-logic"]
+      };
+
+      let phase = "start";
+      let activeNode = "all";
+      let view = "agent";
+
+      const viewButtons = document.querySelectorAll(".view-btn");
+      const phaseButtons = document.querySelectorAll(".phase-btn");
+      const nodes = document.querySelectorAll(".node");
+      const edges = document.querySelectorAll(".edge");
+      const flowSteps = document.querySelectorAll(".flow-step");
+      const agentScene = document.querySelector(".agent-scene");
+      const flowScene = document.querySelector(".flow-scene");
+
+      const storyPill = document.getElementById("story-pill");
+      const title = document.getElementById("title");
+      const lead = document.getElementById("lead");
+      const gets = document.getElementById("gets");
+      const sends = document.getElementById("sends");
+      const from = document.getElementById("from");
+      const to = document.getElementById("to");
+      const steps = document.getElementById("steps");
+      const note = document.getElementById("note");
+
+      function renderChips(target, items) {
+        target.innerHTML = items.map(item => `<span class="chip">${item}</span>`).join("");
+      }
+
+      function renderSteps(target, items) {
+        target.innerHTML = items.map(item => `<li>${item}</li>`).join("");
+      }
+
+      function refreshSide() {
+        const data = details[activeNode];
+        title.textContent = data.title;
+        lead.textContent = data.lead;
+        renderChips(gets, data.gets);
+        renderChips(sends, data.sends);
+        renderChips(from, data.from);
+        renderChips(to, data.to);
+        renderSteps(steps, data.steps);
+        note.textContent = data.note;
+      }
+
+      function refreshView() {
+        storyPill.textContent = storyByPhase[phase];
+        viewButtons.forEach(btn => btn.classList.toggle("active", btn.dataset.view === view));
+        agentScene.classList.toggle("hidden", view !== "agent");
+        flowScene.classList.toggle("hidden", view !== "flow");
+
+        const visible = new Set(phaseEdges[phase]);
+        const highlighted = activeNode === "all"
+          ? new Set(phaseEdges[phase])
+          : new Set(nodeEdges[activeNode]);
+
+        phaseButtons.forEach(btn => btn.classList.toggle("active", btn.dataset.phase === phase));
+        nodes.forEach(node => {
+          const isActive = node.dataset.node === activeNode;
+          node.classList.toggle("active", isActive);
+          node.classList.toggle("muted", activeNode !== "all" && !isActive);
+        });
+
+        flowSteps.forEach(step => {
+          const phases = String(step.dataset.flowPhase || "").split(" ");
+          const show = phases.includes(phase);
+          const isActive = step.dataset.node === activeNode;
+          step.style.display = show ? "" : "none";
+          step.classList.toggle("active", activeNode !== "all" && isActive);
+          step.classList.toggle("muted", activeNode !== "all" && !isActive);
+        });
+
+        edges.forEach(edge => {
+          const id = edge.dataset.edge;
+          const show = visible.has(id);
+          const active = highlighted.has(id);
+          edge.classList.toggle("hidden", !show);
+          edge.classList.toggle("active", show && active);
+          edge.classList.toggle("muted", activeNode !== "all" && show && !active);
+        });
+
+        refreshSide();
+      }
+
+      viewButtons.forEach(btn => {
+        btn.addEventListener("click", () => {
+          view = btn.dataset.view;
+          activeNode = "all";
+          refreshView();
+        });
+      });
+
+      phaseButtons.forEach(btn => {
+        btn.addEventListener("click", () => {
+          phase = btn.dataset.phase;
+          activeNode = "all";
+          refreshView();
+        });
+      });
+
+      nodes.forEach(node => {
+        node.addEventListener("click", () => {
+          activeNode = activeNode === node.dataset.node ? "all" : node.dataset.node;
+          refreshView();
+        });
+      });
+
+      flowSteps.forEach(step => {
+        step.addEventListener("click", () => {
+          activeNode = activeNode === step.dataset.node ? "all" : step.dataset.node;
+          refreshView();
+        });
+      });
+
+      refreshView();
+    </script>
+  </body>
+</html>
