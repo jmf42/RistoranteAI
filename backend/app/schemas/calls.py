@@ -22,3 +22,10 @@ class TranscriptResponse(AppBaseModel):
     summary: str
     transcript: str | None = None
     metadata: dict
+
+
+class CallSyncResponse(AppBaseModel):
+    replayed_events: int
+    failed_events: int
+    pending_events: int
+    backfilled_calls: int

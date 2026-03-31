@@ -145,6 +145,28 @@ class CallLog(Base):
     booking: Mapped[Booking | None] = relationship(back_populates="call_logs")
 
 
+class RawWebhookEvent(Base):
+    __tablename__ = "raw_webhook_events"
+    __table_args__ = (
+        UniqueConstraint("source", "event_key", name="uq_raw_webhook_events_source_event_key"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    source: Mapped[str] = mapped_column(String(40), index=True)
+    event_key: Mapped[str] = mapped_column(String(120))
+    restaurant_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("restaurants.id"), nullable=True, index=True
+    )
+    status: Mapped[str] = mapped_column(String(20), default="pending", index=True)
+    attempt_count: Mapped[int] = mapped_column(Integer, default=0)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+    processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    raw_payload: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+
+    restaurant: Mapped[Restaurant | None] = relationship()
+
+
 class Customer(Base):
     __tablename__ = "customers"
 

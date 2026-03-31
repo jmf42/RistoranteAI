@@ -1,11 +1,19 @@
 from __future__ import annotations
 
 from datetime import UTC, date, datetime
+from types import SimpleNamespace
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
+import app.api.calls as calls_api
+import app.api.webhooks as webhooks_api
 from app.integrations.elevenlabs import SyncResult, elevenlabs_service
-from app.models import Booking, CallLog, Restaurant
+from app.models import Booking, CallLog, RawWebhookEvent, Restaurant
+from app.schemas.common import RawWebhookEventStatus
+from app.services.call_logs import (
+    WEBHOOK_SOURCE_ELEVENLABS_POST_CALL,
+    process_webhook_event,
+)
 from tests.conftest import login
 
 
@@ -344,76 +352,151 @@ def test_twilio_inbound_falls_back_when_register_call_fails(client, db_session, 
     assert "Ci scusi, stiamo avendo un problema tecnico" in response.text
 
 
-def test_calls_list_backfills_missing_elevenlabs_twilio_calls(client, db_session, monkeypatch):
-    login(client)
+def test_elevenlabs_webhook_stores_verified_payload_and_returns_200(client, db_session, monkeypatch):
     restaurant = db_session.scalar(select(Restaurant).where(Restaurant.slug == "trattoria-da-mario"))
     assert restaurant is not None
+    payload = {
+        "conversation_id": "conv_webhook_store_only",
+        "agent_id": restaurant.elevenlabs_agent_id,
+        "status": "done",
+        "call_successful": "success",
+        "analysis": {"transcript_summary": "Chiamata completata."},
+        "metadata": {
+            "agent_id": restaurant.elevenlabs_agent_id,
+            "called_number": restaurant.twilio_phone,
+            "caller_id": "+41779802809",
+            "start_time_unix_secs": 1774706210,
+            "call_duration_secs": 66,
+        },
+        "transcript": [{"role": "agent", "message": "Buonasera."}],
+    }
 
     monkeypatch.setattr(
         elevenlabs_service,
-        "list_recent_conversations",
-        lambda **_: [
-            {
-                "conversation_id": "conv_missing_from_webhook",
-                "conversation_initiation_source": "twilio",
-                "direction": "inbound",
-            },
-            {
-                "conversation_id": "conv_browser_test",
-                "conversation_initiation_source": "react_sdk",
-                "direction": None,
-            },
-        ],
+        "verify_webhook",
+        lambda raw_payload, signature: SimpleNamespace(data=payload),
     )
+    monkeypatch.setattr(webhooks_api, "process_webhook_event_now", lambda *_: True)
+
+    response = client.post(
+        "/api/webhooks/elevenlabs/post-call",
+        headers={"elevenlabs-signature": "sig_test"},
+        json={"data": payload},
+    )
+
+    assert response.status_code == 200
+    stored_event = db_session.scalar(
+        select(RawWebhookEvent).where(RawWebhookEvent.event_key == "conv_webhook_store_only")
+    )
+    assert stored_event is not None
+    assert stored_event.source == WEBHOOK_SOURCE_ELEVENLABS_POST_CALL
+    assert stored_event.status == RawWebhookEventStatus.pending
+    assert stored_event.raw_payload["conversation_id"] == "conv_webhook_store_only"
+    stored_call = db_session.scalar(
+        select(CallLog).where(CallLog.elevenlabs_conversation_id == "conv_webhook_store_only")
+    )
+    assert stored_call is None
+
+
+def test_elevenlabs_webhook_duplicate_delivery_is_idempotent(client, db_session, monkeypatch):
+    restaurant = db_session.scalar(select(Restaurant).where(Restaurant.slug == "trattoria-da-mario"))
+    assert restaurant is not None
+    payload = {
+        "conversation_id": "conv_duplicate_webhook",
+        "agent_id": restaurant.elevenlabs_agent_id,
+        "status": "done",
+        "call_successful": "success",
+        "analysis": {"transcript_summary": "Prenotazione completata."},
+        "metadata": {
+            "agent_id": restaurant.elevenlabs_agent_id,
+            "called_number": restaurant.twilio_phone,
+            "caller_id": "+41779802809",
+            "start_time_unix_secs": 1774706210,
+            "call_duration_secs": 66,
+        },
+        "transcript": [{"role": "agent", "message": "Buonasera."}],
+    }
+
     monkeypatch.setattr(
         elevenlabs_service,
-        "fetch_conversation",
-        lambda conversation_id: {
-            "conversation_id": conversation_id,
-            "agent_id": restaurant.elevenlabs_agent_id,
-            "status": "done",
-            "call_successful": "failure",
-            "transcript": [{"role": "agent", "message": "Mi scusi, ho avuto un problema tecnico."}],
-            "analysis": {"transcript_summary": "Tentativo prenotazione non completato."},
-            "metadata": {
-                "start_time_unix_secs": 1774706210,
-                "call_duration_secs": 118,
-                "phone_call": {
-                    "direction": "inbound",
-                    "agent_number": restaurant.twilio_phone,
-                    "external_number": "+41779802809",
-                },
-            },
-            "conversation_initiation_client_data": {
-                "dynamic_variables": {
-                    "restaurant_id": restaurant.id,
-                    "called_number": restaurant.twilio_phone,
-                    "caller_phone": "+41779802809",
-                }
-            },
-        },
+        "verify_webhook",
+        lambda raw_payload, signature: SimpleNamespace(data=payload),
+    )
+    monkeypatch.setattr(webhooks_api, "process_webhook_event_now", lambda *_: True)
+
+    first = client.post(
+        "/api/webhooks/elevenlabs/post-call",
+        headers={"elevenlabs-signature": "sig_test"},
+        json={"data": payload},
+    )
+    second = client.post(
+        "/api/webhooks/elevenlabs/post-call",
+        headers={"elevenlabs-signature": "sig_test"},
+        json={"data": payload},
+    )
+    assert first.status_code == 200
+    assert second.status_code == 200
+
+    event_count = db_session.scalar(
+        select(func.count())
+        .select_from(RawWebhookEvent)
+        .where(RawWebhookEvent.event_key == "conv_duplicate_webhook")
+    )
+    assert event_count == 1
+    event = db_session.scalar(
+        select(RawWebhookEvent).where(RawWebhookEvent.event_key == "conv_duplicate_webhook")
+    )
+    assert event is not None
+    assert process_webhook_event(db_session, event=event, request_id="test-duplicate") is True
+    call_count = db_session.scalar(
+        select(func.count())
+        .select_from(CallLog)
+        .where(CallLog.elevenlabs_conversation_id == "conv_duplicate_webhook")
+    )
+    assert call_count == 1
+
+
+def test_calls_list_reads_local_db_only(client, monkeypatch):
+    login(client)
+    monkeypatch.setattr(
+        calls_api,
+        "sync_recent_calls_from_elevenlabs",
+        lambda **_: (_ for _ in ()).throw(AssertionError("sync should not run on GET /api/calls")),
     )
 
     response = client.get("/api/calls")
     assert response.status_code == 200
-    payload = response.json()
-    synced = next(item for item in payload if item["elevenlabs_conversation_id"] == "conv_missing_from_webhook")
-    assert synced["call_status"] == "failed"
-    assert synced["outcome"] == "info_provided"
-
-    stored = db_session.scalar(
-        select(CallLog).where(CallLog.elevenlabs_conversation_id == "conv_missing_from_webhook")
-    )
-    assert stored is not None
-    assert stored.call_status == "failed"
+    assert len(response.json()) >= 1
 
 
-def test_calls_list_backfill_marks_tool_error_when_remote_transcript_shows_failure(
+def test_call_sync_endpoint_replays_pending_events_and_backfills_missing_calls(
     client, db_session, monkeypatch
 ):
     login(client)
     restaurant = db_session.scalar(select(Restaurant).where(Restaurant.slug == "trattoria-da-mario"))
     assert restaurant is not None
+    raw_event = RawWebhookEvent(
+        source=WEBHOOK_SOURCE_ELEVENLABS_POST_CALL,
+        event_key="conv_pending_replay",
+        status=RawWebhookEventStatus.pending,
+        raw_payload={
+            "conversation_id": "conv_pending_replay",
+            "agent_id": restaurant.elevenlabs_agent_id,
+            "status": "done",
+            "call_successful": "failure",
+            "transcript": "Tool failed while creating reservation.",
+            "analysis": {"transcript_summary": "La prenotazione non è andata a buon fine."},
+            "metadata": {
+                "agent_id": restaurant.elevenlabs_agent_id,
+                "called_number": restaurant.twilio_phone,
+                "caller_id": "+41779802809",
+                "start_time_unix_secs": 1774706210,
+                "call_duration_secs": 45,
+            },
+        },
+    )
+    db_session.add(raw_event)
+    db_session.commit()
 
     monkeypatch.setattr(
         elevenlabs_service,
@@ -455,8 +538,61 @@ def test_calls_list_backfill_marks_tool_error_when_remote_transcript_shows_failu
         },
     )
 
-    response = client.get("/api/calls")
+    response = client.post("/api/calls/sync")
     assert response.status_code == 200
     payload = response.json()
-    synced = next(item for item in payload if item["elevenlabs_conversation_id"] == "conv_tool_error")
-    assert synced["outcome"] == "tool_error"
+    assert payload["replayed_events"] == 1
+    assert payload["failed_events"] == 0
+    assert payload["backfilled_calls"] == 1
+
+    replayed = db_session.scalar(
+        select(CallLog).where(CallLog.elevenlabs_conversation_id == "conv_pending_replay")
+    )
+    assert replayed is not None
+    assert replayed.outcome == "tool_error"
+
+    synced = db_session.scalar(
+        select(CallLog).where(CallLog.elevenlabs_conversation_id == "conv_tool_error")
+    )
+    assert synced is not None
+    assert synced.outcome == "tool_error"
+
+
+def test_call_sync_endpoint_is_owner_only(client):
+    login(client, email="operator@ristorante.ai")
+    response = client.post("/api/calls/sync")
+    assert response.status_code == 403
+
+
+def test_call_sync_endpoint_marks_failed_events_with_error(client, db_session, monkeypatch):
+    login(client)
+    db_session.add(
+        RawWebhookEvent(
+            source=WEBHOOK_SOURCE_ELEVENLABS_POST_CALL,
+            event_key="conv_missing_restaurant",
+            status=RawWebhookEventStatus.pending,
+            raw_payload={
+                "conversation_id": "conv_missing_restaurant",
+                "agent_id": "agent_missing",
+                "metadata": {
+                    "agent_id": "agent_missing",
+                    "called_number": "+390000000000",
+                    "start_time_unix_secs": 1774706210,
+                },
+            },
+        )
+    )
+    db_session.commit()
+    monkeypatch.setattr(elevenlabs_service, "list_recent_conversations", lambda **_: [])
+
+    response = client.post("/api/calls/sync")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["failed_events"] == 1
+
+    stored = db_session.scalar(
+        select(RawWebhookEvent).where(RawWebhookEvent.event_key == "conv_missing_restaurant")
+    )
+    assert stored is not None
+    assert stored.status == RawWebhookEventStatus.failed
+    assert stored.last_error == "Restaurant not found for webhook event"

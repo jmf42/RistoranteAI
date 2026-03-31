@@ -4,17 +4,28 @@ import csv
 from datetime import UTC, datetime, timedelta
 from io import StringIO
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import accessible_restaurant_id, get_current_user, get_db, get_restaurant_or_404
+from app.api.deps import (
+    accessible_restaurant_id,
+    get_current_user,
+    get_db,
+    get_restaurant_or_404,
+    require_roles,
+)
 from app.core.observability import json_log
 from app.integrations.elevenlabs import elevenlabs_service
 from app.models import CallLog, User
-from app.schemas.calls import CallLogRead, TranscriptResponse
-from app.services.call_logs import sync_recent_calls_from_elevenlabs
+from app.schemas.calls import CallLogRead, CallSyncResponse, TranscriptResponse
+from app.services.call_logs import (
+    WEBHOOK_SOURCE_ELEVENLABS_POST_CALL,
+    count_pending_webhook_events,
+    replay_webhook_events,
+    sync_recent_calls_from_elevenlabs,
+)
 
 router = APIRouter(prefix="/calls", tags=["calls"])
 
@@ -43,19 +54,61 @@ def list_calls(
     current_user: User = Depends(get_current_user),
 ) -> list[CallLogRead]:
     resolved_id = accessible_restaurant_id(db, current_user=current_user, restaurant_id=restaurant_id)
-    restaurant = get_restaurant_or_404(db, resolved_id)
-    sync_recent_calls_from_elevenlabs(
-        db,
-        restaurant=restaurant,
-        days=days,
-        request_id=None,
-    )
     start_dt = datetime.now(UTC) - timedelta(days=days)
     stmt = select(CallLog).where(CallLog.restaurant_id == resolved_id, CallLog.started_at >= start_dt)
     if outcome:
         stmt = stmt.where(CallLog.outcome == outcome)
     calls = db.scalars(stmt.order_by(CallLog.started_at.desc()).limit(250)).all()
     return [_call_to_read(call) for call in calls]
+
+
+@router.post("/sync", response_model=CallSyncResponse)
+def sync_calls(
+    request: Request,
+    restaurant_id: str | None = Query(default=None),
+    days: int = Query(default=2, ge=1, le=30),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles("owner")),
+) -> CallSyncResponse:
+    resolved_id = accessible_restaurant_id(db, current_user=current_user, restaurant_id=restaurant_id)
+    restaurant = get_restaurant_or_404(db, resolved_id)
+    request_id = getattr(request.state, "request_id", None)
+    replayed_events, failed_events = replay_webhook_events(
+        db,
+        source=WEBHOOK_SOURCE_ELEVENLABS_POST_CALL,
+        restaurant=restaurant,
+        request_id=request_id,
+    )
+    backfilled_calls = sync_recent_calls_from_elevenlabs(
+        db,
+        restaurant=restaurant,
+        days=days,
+        request_id=request_id,
+    )
+    pending_events = count_pending_webhook_events(
+        db,
+        source=WEBHOOK_SOURCE_ELEVENLABS_POST_CALL,
+    )
+    json_log(
+        "app.calls",
+        {
+            "event": "manual_calls_sync",
+            "request_id": request_id,
+            "restaurant_id": restaurant.id,
+            "days": days,
+            "replayed_events": replayed_events,
+            "failed_events": failed_events,
+            "backfilled_calls": backfilled_calls,
+            "pending_events": pending_events,
+            "user_email": current_user.email,
+        },
+    )
+    return CallSyncResponse(
+        replayed_events=replayed_events,
+        failed_events=failed_events,
+        pending_events=pending_events,
+        backfilled_calls=backfilled_calls,
+    )
 
 
 @router.get("/export")

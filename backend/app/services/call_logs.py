@@ -1,16 +1,22 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import Select, func, select
 from sqlalchemy.orm import Session
 
+from app.core.cache import analytics_cache
+from app.core.database import SessionLocal
 from app.core.observability import json_log
 from app.core.security import hash_phone
 from app.integrations.elevenlabs import elevenlabs_service
-from app.models import Booking, BookingEvent, CallLog, Restaurant
-from app.schemas.common import CallOutcome, CallStatus
+from app.models import Booking, BookingEvent, CallLog, RawWebhookEvent, Restaurant
+from app.schemas.common import CallOutcome, CallStatus, RawWebhookEventStatus
+
+WEBHOOK_SOURCE_ELEVENLABS_POST_CALL = "elevenlabs_post_call"
 
 
 def extract_transcript_preview(payload: dict[str, Any]) -> str | None:
@@ -101,6 +107,206 @@ def _elevenlabs_analysis_says_booked(analysis: dict[str, Any]) -> bool:
     criteria = analysis.get("evaluation_criteria_results", {})
     reservation = criteria.get("reservation_completed", {})
     return reservation.get("result") == "success"
+
+
+def build_webhook_event_key(payload: dict[str, Any]) -> str:
+    conversation_id = payload.get("conversation_id") or payload.get("id")
+    if conversation_id:
+        return str(conversation_id)
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def enqueue_raw_webhook_event(
+    db: Session,
+    *,
+    source: str,
+    payload: dict[str, Any],
+) -> RawWebhookEvent:
+    event_key = build_webhook_event_key(payload)
+    event = db.scalar(
+        select(RawWebhookEvent).where(
+            RawWebhookEvent.source == source,
+            RawWebhookEvent.event_key == event_key,
+        )
+    )
+    if not event:
+        event = RawWebhookEvent(
+            source=source,
+            event_key=event_key,
+            raw_payload=payload,
+            status=RawWebhookEventStatus.pending,
+        )
+        db.add(event)
+        db.flush()
+        return event
+
+    event.raw_payload = payload
+    event.received_at = datetime.now(UTC)
+    if event.status == RawWebhookEventStatus.failed:
+        event.status = RawWebhookEventStatus.pending
+        event.last_error = None
+        event.processed_at = None
+    db.add(event)
+    db.flush()
+    return event
+
+
+def _payload_metadata(payload: dict[str, Any]) -> dict[str, Any]:
+    metadata = payload.get("metadata", {}) if isinstance(payload, dict) else {}
+    return metadata if isinstance(metadata, dict) else {}
+
+
+def _resolve_restaurant_for_payload(db: Session, payload: dict[str, Any]) -> Restaurant | None:
+    metadata = _payload_metadata(payload)
+    agent_id = metadata.get("agent_id") or payload.get("agent_id")
+    called_number = metadata.get("called_number") or payload.get("called_number")
+    if not agent_id and not called_number:
+        return None
+    return db.scalar(
+        select(Restaurant).where(
+            (Restaurant.elevenlabs_agent_id == agent_id) | (Restaurant.twilio_phone == called_number)
+        )
+    )
+
+
+def process_webhook_event(db: Session, *, event: RawWebhookEvent, request_id: str | None = None) -> bool:
+    if event.status == RawWebhookEventStatus.done:
+        return True
+    if event.status == RawWebhookEventStatus.processing:
+        return False
+
+    event.status = RawWebhookEventStatus.processing
+    db.add(event)
+    db.commit()
+
+    try:
+        payload = event.raw_payload if isinstance(event.raw_payload, dict) else {}
+        restaurant = _resolve_restaurant_for_payload(db, payload)
+        if not restaurant:
+            raise LookupError("Restaurant not found for webhook event")
+
+        call_log = upsert_call_log_from_payload(db, restaurant=restaurant, payload=payload)
+        event.restaurant_id = restaurant.id
+        event.status = RawWebhookEventStatus.done
+        event.processed_at = datetime.now(UTC)
+        event.last_error = None
+        db.add(event)
+        db.commit()
+
+        analytics_cache.invalidate(f"overview:{restaurant.id}")
+        analytics_cache.invalidate(f"trends:{restaurant.id}")
+        json_log(
+            "app.webhooks",
+            {
+                "event": "raw_webhook_event_processed",
+                "request_id": request_id,
+                "raw_event_id": event.id,
+                "restaurant_id": restaurant.id,
+                "conversation_id": call_log.elevenlabs_conversation_id,
+                "outcome": call_log.outcome,
+                "pending_events": count_pending_webhook_events(
+                    db, source=WEBHOOK_SOURCE_ELEVENLABS_POST_CALL
+                ),
+            },
+        )
+        return True
+    except Exception as exc:  # noqa: BLE001
+        db.rollback()
+        persisted = db.get(RawWebhookEvent, event.id)
+        if not persisted:
+            return False
+        persisted.status = RawWebhookEventStatus.failed
+        persisted.attempt_count += 1
+        persisted.last_error = str(exc)
+        persisted.processed_at = None
+        db.add(persisted)
+        db.commit()
+        json_log(
+            "app.webhooks",
+            {
+                "event": "raw_webhook_event_failed",
+                "request_id": request_id,
+                "raw_event_id": event.id,
+                "error": str(exc),
+                "attempt_count": persisted.attempt_count,
+            },
+        )
+        return False
+
+
+def process_webhook_event_now(event_id: str, request_id: str | None = None) -> bool:
+    db = SessionLocal()
+    try:
+        event = db.get(RawWebhookEvent, event_id)
+        if not event:
+            return False
+        return process_webhook_event(db, event=event, request_id=request_id)
+    finally:
+        db.close()
+
+
+def count_pending_webhook_events(db: Session, *, source: str) -> int:
+    return int(
+        db.scalar(
+            select(func.count())
+            .select_from(RawWebhookEvent)
+            .where(
+                RawWebhookEvent.source == source,
+                RawWebhookEvent.status.in_(
+                    [RawWebhookEventStatus.pending, RawWebhookEventStatus.failed]
+                ),
+            )
+        )
+        or 0
+    )
+
+
+def _payload_matches_restaurant(payload: dict[str, Any], restaurant: Restaurant) -> bool:
+    metadata = _payload_metadata(payload)
+    agent_id = metadata.get("agent_id") or payload.get("agent_id")
+    called_number = metadata.get("called_number") or payload.get("called_number")
+    return bool(
+        (restaurant.elevenlabs_agent_id and agent_id == restaurant.elevenlabs_agent_id)
+        or (restaurant.twilio_phone and called_number == restaurant.twilio_phone)
+    )
+
+
+def replay_webhook_events(
+    db: Session,
+    *,
+    source: str,
+    restaurant: Restaurant | None = None,
+    limit: int = 100,
+    request_id: str | None = None,
+) -> tuple[int, int]:
+    stmt: Select[tuple[RawWebhookEvent]] = (
+        select(RawWebhookEvent)
+        .where(
+            RawWebhookEvent.source == source,
+            RawWebhookEvent.status.in_([RawWebhookEventStatus.pending, RawWebhookEventStatus.failed]),
+        )
+        .order_by(RawWebhookEvent.received_at.asc())
+        .limit(limit)
+    )
+    events = db.scalars(stmt).all()
+    replayed = 0
+    failed = 0
+    for event in events:
+        if restaurant and event.restaurant_id not in {None, restaurant.id}:
+            continue
+        payload = event.raw_payload if isinstance(event.raw_payload, dict) else {}
+        if (
+            restaurant
+            and event.restaurant_id == restaurant.id
+            and not _payload_matches_restaurant(payload, restaurant)
+        ):
+            continue
+        if process_webhook_event(db, event=event, request_id=request_id):
+            replayed += 1
+        else:
+            failed += 1
+    return replayed, failed
 
 
 def upsert_call_log_from_payload(

@@ -16,16 +16,17 @@ CLOSED_WEEKDAY = "monday"
 TOOL_HEADERS = {"X-Ristorante-Tool-Secret": "local-tool-secret"}
 
 
-def _next_open_date(offset: int = 0) -> str:
-    candidate = date.today() + timedelta(days=5 + offset)
-    while candidate.strftime("%A").lower() == CLOSED_WEEKDAY:
+def _next_open_dates(count: int) -> list[str]:
+    dates: list[str] = []
+    candidate = date.today() + timedelta(days=5)
+    while len(dates) < count:
+        if candidate.strftime("%A").lower() != CLOSED_WEEKDAY:
+            dates.append(candidate.isoformat())
         candidate += timedelta(days=1)
-    return candidate.isoformat()
+    return dates
 
 
-DATE_1 = _next_open_date(0)
-DATE_2 = _next_open_date(1)
-DATE_3 = _next_open_date(2)
+DATE_1, DATE_2, DATE_3 = _next_open_dates(3)
 
 
 def _restaurant(db: Session) -> Restaurant:

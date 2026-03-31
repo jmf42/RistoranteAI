@@ -44,6 +44,13 @@ class CallStatus(StrEnum):
     unknown = "unknown"
 
 
+class RawWebhookEventStatus(StrEnum):
+    pending = "pending"
+    processing = "processing"
+    done = "done"
+    failed = "failed"
+
+
 class SyncStatus(AppBaseModel):
     synced: bool
     message: str
