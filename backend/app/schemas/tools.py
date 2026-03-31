@@ -35,7 +35,7 @@ class CreateBookingToolRequest(AppBaseModel):
     date: DateValue
     time: TimeValue
     party_size: int = Field(ge=1, le=30)
-    customer_name: str
+    customer_name: str = Field(min_length=2)
     customer_phone: str
     special_requests: str | None = None
     caller_phone: str | None = None

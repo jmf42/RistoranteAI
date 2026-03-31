@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, time
+from datetime import UTC, date, datetime, time, timedelta
 from typing import Any
 
 from sqlalchemy import Select, asc, func, select
@@ -175,10 +175,29 @@ def create_booking(
         reason = availability.get("reason") or "slot_just_filled"
         return None, {"reason": reason, "alternatives": availability.get("alternatives", [])}
 
-    turno_name = availability["slot"]["turno"]
-    confirmation_code = generate_confirmation_code(db, restaurant, payload.date)
+    # Duplicate guard: reject if same phone+date+time+party_size booking exists within last 5 minutes
     normalized_phone = normalize_phone(payload.customer_phone)
     phone_hash = hash_phone(normalized_phone)
+    recent_cutoff = datetime.now(UTC) - timedelta(minutes=5)
+    duplicate = db.scalar(
+        select(Booking).where(
+            Booking.restaurant_id == restaurant.id,
+            Booking.date == payload.date,
+            Booking.time == payload.time,
+            Booking.party_size == payload.party_size,
+            Booking.customer_phone_hash == phone_hash,
+            Booking.status.in_(ACTIVE_STATUSES),
+            Booking.created_at >= recent_cutoff,
+        )
+    )
+    if duplicate:
+        return None, {
+            "reason": "booking_already_exists",
+            "alternatives": [],
+        }
+
+    turno_name = availability["slot"]["turno"]
+    confirmation_code = generate_confirmation_code(db, restaurant, payload.date)
     name_encrypted = encrypt_pii(payload.customer_name)
     phone_encrypted = encrypt_pii(normalized_phone)
 
