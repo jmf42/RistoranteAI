@@ -18,11 +18,15 @@ CLOSED_WEEKDAY = "monday"
 
 
 def _next_open_date(offset: int = 0) -> str:
-    """Return a future date that isn't Monday (the seeded restaurant's closure day)."""
-    candidate = date.today() + timedelta(days=5 + offset)
-    while candidate.strftime("%A").lower() == CLOSED_WEEKDAY:
+    """Return the Nth future open date (not Monday, the seeded restaurant's closure day)."""
+    candidate = date.today() + timedelta(days=5)
+    skipped = 0
+    while True:
+        if candidate.strftime("%A").lower() != CLOSED_WEEKDAY:
+            if skipped == offset:
+                return candidate.isoformat()
+            skipped += 1
         candidate += timedelta(days=1)
-    return candidate.isoformat()
 
 TOOL_HEADERS = {"X-Ristorante-Tool-Secret": "local-tool-secret"}
 FUTURE_DATE = _next_open_date(0)

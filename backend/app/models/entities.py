@@ -24,8 +24,8 @@ def default_opening_hours() -> dict[str, str]:
 
 def default_turni() -> list[dict[str, Any]]:
     return [
-        {"name": "primo", "start": "19:00", "end": "21:00", "max_covers": 40},
-        {"name": "secondo", "start": "21:00", "end": "23:30", "max_covers": 35},
+        {"name": "Cena 1", "start": "19:00", "end": "21:00", "max_covers": 40},
+        {"name": "Cena 2", "start": "21:00", "end": "23:30", "max_covers": 35},
     ]
 
 

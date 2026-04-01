@@ -4,6 +4,16 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, status
+
+_ITALIAN_DAYS = {
+    "Monday": "lunedì",
+    "Tuesday": "martedì",
+    "Wednesday": "mercoledì",
+    "Thursday": "giovedì",
+    "Friday": "venerdì",
+    "Saturday": "sabato",
+    "Sunday": "domenica",
+}
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -55,7 +65,7 @@ def build_twilio_personalization_response(
         "timezone": restaurant.timezone,
         "current_date": local_now.strftime("%Y-%m-%d"),
         "current_time": local_now.strftime("%H:%M"),
-        "current_day_of_week": local_now.strftime("%A"),
+        "current_day_of_week": _ITALIAN_DAYS.get(local_now.strftime("%A"), local_now.strftime("%A")),
         "escalation_phone": restaurant.escalation_phone or "",
         "agent_style_notes": restaurant.agent_style_notes or "",
         "greeting": _greeting_for_restaurant(restaurant),
