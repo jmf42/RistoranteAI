@@ -12,6 +12,21 @@ from app.schemas.booking import BookingCreate, BookingRead, BookingUpdate
 from app.schemas.common import BookingStatus
 from app.services.availability import ACTIVE_STATUSES, check_availability
 
+# ---------------------------------------------------------------------------
+# Italian reason messages — returned to the ElevenLabs agent so it can
+# relay them naturally without translating English technical strings.
+# ---------------------------------------------------------------------------
+_REASON_IT = {
+    "restaurant_not_found": "Mi scusi, non riesco a trovare il ristorante. Riprovi tra poco.",
+    "slot_just_filled": "Mi dispiace, il turno richiesto è appena stato completato.",
+    "booking_already_exists": "Risulta già una prenotazione con questi stessi dati.",
+    "new_slot_unavailable": "Mi dispiace, il nuovo orario richiesto non è disponibile.",
+}
+
+
+def _italian_reason(key: str) -> str:
+    return _REASON_IT.get(key, key)
+
 
 def restaurant_initials(name: str) -> str:
     parts = [piece[0] for piece in name.split() if piece]
@@ -163,7 +178,7 @@ def create_booking(
 ) -> tuple[Booking | None, dict[str, Any] | None]:
     restaurant = lock_restaurant(db, payload.restaurant_id)
     if not restaurant:
-        return None, {"reason": "restaurant_not_found", "alternatives": []}
+        return None, {"reason": _italian_reason("restaurant_not_found"), "alternatives": []}
     availability = check_availability(
         db,
         restaurant=restaurant,
@@ -172,7 +187,7 @@ def create_booking(
         party_size=payload.party_size,
     )
     if not availability.get("open") or not availability.get("available"):
-        reason = availability.get("reason") or "slot_just_filled"
+        reason = availability.get("reason") or _italian_reason("slot_just_filled")
         return None, {"reason": reason, "alternatives": availability.get("alternatives", [])}
 
     # Duplicate guard: reject if same phone+date+time+party_size booking exists within last 5 minutes
@@ -192,7 +207,7 @@ def create_booking(
     )
     if duplicate:
         return None, {
-            "reason": "booking_already_exists",
+            "reason": _italian_reason("booking_already_exists"),
             "alternatives": [],
         }
 
@@ -304,7 +319,7 @@ def update_booking(
 ) -> tuple[Booking | None, dict[str, Any] | None]:
     restaurant = lock_restaurant(db, booking.restaurant_id)
     if not restaurant:
-        return None, {"reason": "restaurant_not_found", "alternatives": []}
+        return None, {"reason": _italian_reason("restaurant_not_found"), "alternatives": []}
     target_date = changes.date if changes.date is not None else booking.date
     target_time = changes.time if changes.time is not None else booking.time
     target_party_size = changes.party_size if changes.party_size is not None else booking.party_size
@@ -318,7 +333,7 @@ def update_booking(
         exclude_booking_id=booking.id,
     )
     if not availability.get("open") or not availability.get("available"):
-        reason = availability.get("reason") or "new_slot_unavailable"
+        reason = availability.get("reason") or _italian_reason("new_slot_unavailable")
         return None, {"reason": reason, "alternatives": availability.get("alternatives", [])}
 
     change_log: dict[str, Any] = {}
