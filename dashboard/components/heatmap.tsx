@@ -19,11 +19,11 @@ export function Heatmap({ cells }: { cells: HeatmapCell[] }) {
   return (
     <div className="space-y-3">
       <p className="text-xs uppercase tracking-[0.2em] text-ink/42">
-        Su mobile scorri orizzontalmente per leggere tutte le ore.
+        Su mobile scorri orizzontalmente: le ore restano leggibili senza schiacciare i dati.
       </p>
       <div className="-mx-1 overflow-x-auto pb-2">
-        <div className="min-w-[640px] space-y-2 px-1">
-          <div className="grid grid-cols-[62px_repeat(24,minmax(0,1fr))] gap-1 text-[11px] uppercase tracking-[0.22em] text-ink/45">
+        <div className="min-w-[556px] space-y-2 px-1 sm:min-w-[640px]">
+          <div className="grid grid-cols-[52px_repeat(24,minmax(18px,1fr))] gap-1 text-[10px] uppercase tracking-[0.18em] text-ink/45 sm:grid-cols-[62px_repeat(24,minmax(0,1fr))] sm:text-[11px] sm:tracking-[0.22em]">
             <span />
             {Array.from({ length: 24 }).map((_, hour) => (
               <span key={hour} className="text-center">
@@ -32,17 +32,18 @@ export function Heatmap({ cells }: { cells: HeatmapCell[] }) {
             ))}
           </div>
           {Array.from({ length: 7 }).map((_, weekday) => (
-            <div key={weekday} className="grid grid-cols-[62px_repeat(24,minmax(0,1fr))] gap-1">
-              <span className="flex items-center text-sm font-medium text-ink/60">
+            <div key={weekday} className="grid grid-cols-[52px_repeat(24,minmax(18px,1fr))] gap-1 sm:grid-cols-[62px_repeat(24,minmax(0,1fr))]">
+              <span className="flex items-center text-xs font-medium text-ink/60 sm:text-sm">
                 {weekdayLabel(weekday)}
               </span>
               {Array.from({ length: 24 }).map((_, hour) => {
                 const value = cellMap.get(`${weekday}-${hour}`) ?? 0;
+                const callLabel = value === 1 ? "chiamata" : "chiamate";
                 return (
                   <div
                     key={`${weekday}-${hour}`}
-                    className={`h-8 rounded-md border border-white/70 ${intensityColor(value, max)}`}
-                    title={`${weekdayLabel(weekday)} ${hour}:00 — ${value} chiamate`}
+                    className={`h-7 rounded-md border border-white/70 sm:h-8 ${intensityColor(value, max)}`}
+                    title={`${weekdayLabel(weekday)} ${hour}:00 — ${value} ${callLabel}`}
                   />
                 );
               })}

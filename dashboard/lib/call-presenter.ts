@@ -24,6 +24,28 @@ export function formatCallStatusLabel(status: CallStatus): string {
   return statusLabels[status] ?? "Da verificare";
 }
 
+export function getCallOperationalStatusLabel(
+  call: Pick<CallLog, "outcome" | "call_status" | "summary" | "booking_id">,
+): string {
+  const presentation = getCallPresentation(call);
+  if (presentation.needsAttention) {
+    return "Da seguire";
+  }
+  if (call.call_status === "successful") {
+    return "Completata";
+  }
+  if (
+    call.outcome === "booking_created" ||
+    call.outcome === "booking_modified" ||
+    call.outcome === "booking_cancelled" ||
+    call.outcome === "info_provided" ||
+    call.outcome === "escalated"
+  ) {
+    return "Gestita";
+  }
+  return formatCallStatusLabel(call.call_status);
+}
+
 function detectConfirmCall(summary: string): boolean {
   const lowered = summary.toLowerCase();
   return (

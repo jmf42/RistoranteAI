@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Any
 
 from elevenlabs.client import ElevenLabs
 
 from app.core.config import settings
+
+logger = logging.getLogger("app.elevenlabs")
 
 
 @dataclass
@@ -15,8 +18,14 @@ class SyncResult:
 
 
 class ElevenLabsService:
+    # Timeout for ElevenLabs API calls — prevents hung Twilio calls
+    _REGISTER_CALL_TIMEOUT = 8.0  # seconds
+
     def __init__(self) -> None:
-        self._client = ElevenLabs(api_key=settings.elevenlabs_api_key or "placeholder")
+        self._client = ElevenLabs(
+            api_key=settings.elevenlabs_api_key or "placeholder",
+            timeout=self._REGISTER_CALL_TIMEOUT,
+        )
 
     @staticmethod
     def _dump_model(value: Any) -> Any:
@@ -168,7 +177,8 @@ class ElevenLabsService:
                 page_size=page_size,
                 summary_mode="include",
             )
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("list_recent_conversations failed for agent %s: %s", agent_id, exc)
             return []
         return self._dump_model(page.conversations) or []
 
@@ -177,7 +187,8 @@ class ElevenLabsService:
             return None
         try:
             conversation = self._client.conversational_ai.conversations.get(conversation_id)
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("fetch_conversation failed for %s: %s", conversation_id, exc)
             return None
         return self._dump_model(conversation)
 

@@ -27,7 +27,7 @@ As of `2026-03-28`:
 - backend is deployed on Google Cloud Run (`ristorante-ai-api`, revision `00016-787`)
 - dashboard is deployed on Google Cloud Run (`ristorante-ai-dashboard`, revision `00006-zh7`)
 - database is Supabase Postgres
-- live schema version: `0005 (head)` — migration `0006` exists locally but has NOT been deployed
+- live schema version: `0005 (head)` — migrations `0006`, `0007`, and `0008` exist locally but have NOT been deployed
 - the live environment is operational but staging-grade (demo data, default Cloud Run domains)
 - the Twilio inbound path is backend-owned at `POST /api/twilio/inbound`
 - the Twilio fallback path is `POST /api/twilio/voice-fallback`
@@ -53,6 +53,8 @@ The current codebase already includes:
 - production smoke testing
 - server-side Twilio inbound call registration with ElevenLabs `register_call`
 - `call_status` field on `CallLog` (successful/failed/unknown) — migration `0006`, NOT YET deployed
+- raw webhook inbox table (`raw_webhook_events`) — migration `0007`, NOT YET deployed
+- Supabase RLS hardening on all public app tables — migration `0008`, NOT YET deployed
 - `tool_error` as a new `CallOutcome` enum value — NOT YET deployed
 - `{saluto}` placeholder support in `custom_greeting` (resolves to Buongiorno/Buonasera by hour) — NOT YET deployed
 - `current_date`, `current_time`, `current_day_of_week` added to personalization dynamic variables — NOT YET deployed
@@ -63,7 +65,7 @@ The current codebase already includes:
 
 These are implemented in code but NOT yet deployed to Cloud Run:
 
-1. Migration `0006` — adds `call_status` column to `call_logs`
+1. Migrations `0006` through `0008` — `call_status`, `raw_webhook_events`, and Supabase RLS hardening
 2. `{saluto}` greeting fix in `personalization.py`
 3. `tool_error` outcome detection in `webhooks.py`
 4. `call_status` in webhook, schema, dashboard

@@ -1,9 +1,18 @@
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app.api.deps import get_db, verify_personalization_secret
+from app.models import Restaurant
+from app.schemas.tools import TwilioPersonalizationRequest, TwilioPersonalizationResponse
+
+logger = logging.getLogger("app.personalization")
 
 _ITALIAN_DAYS = {
     "Monday": "lunedì",
@@ -14,12 +23,6 @@ _ITALIAN_DAYS = {
     "Saturday": "sabato",
     "Sunday": "domenica",
 }
-from sqlalchemy import select
-from sqlalchemy.orm import Session
-
-from app.api.deps import get_db, verify_personalization_secret
-from app.models import Restaurant
-from app.schemas.tools import TwilioPersonalizationRequest, TwilioPersonalizationResponse
 
 router = APIRouter(
     prefix="/integrations/elevenlabs",
@@ -28,8 +31,16 @@ router = APIRouter(
 )
 
 
+def _safe_timezone(tz_name: str) -> ZoneInfo:
+    try:
+        return ZoneInfo(tz_name)
+    except (KeyError, Exception):
+        logger.warning("Invalid timezone %r, falling back to Europe/Rome", tz_name)
+        return ZoneInfo("Europe/Rome")
+
+
 def _greeting_for_restaurant(restaurant: Restaurant) -> str:
-    local_now = datetime.now(ZoneInfo(restaurant.timezone))
+    local_now = datetime.now(_safe_timezone(restaurant.timezone))
     saluto = "Buongiorno" if local_now.hour < 14 else "Buonasera"
     if restaurant.custom_greeting and restaurant.custom_greeting.strip():
         return restaurant.custom_greeting.strip().replace("{saluto}", saluto)
@@ -49,7 +60,7 @@ def build_twilio_personalization_response(
     )
     weekly_closures_str = ", ".join(restaurant.weekly_closures or []) or "nessuna"
     closure_dates_str = ", ".join(restaurant.closure_dates or []) or "nessuna"
-    local_now = datetime.now(ZoneInfo(restaurant.timezone))
+    local_now = datetime.now(_safe_timezone(restaurant.timezone))
     dynamic_variables = {
         "restaurant_id": str(restaurant.id),
         "restaurant_name": restaurant.name,

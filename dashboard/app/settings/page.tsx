@@ -1,9 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { Bot, PhoneCall, PhoneForwarded, Store } from "lucide-react";
 
 import { DashboardShell } from "@/components/dashboard-shell";
+import { MetricPanel } from "@/components/metric-panel";
 import { SectionCard } from "@/components/section-card";
+import { StatusBadge } from "@/components/status-badge";
 import { useWorkspace } from "@/components/workspace-provider";
 import { ApiError, apiFetch } from "@/lib/api";
 import { Restaurant } from "@/lib/types";
@@ -39,6 +42,61 @@ export default function SettingsPage() {
       setForm(JSON.parse(JSON.stringify(restaurant)) as Restaurant);
     }
   }, [restaurant]);
+
+  const isDirty = useMemo(() => {
+    if (!restaurant || !form) {
+      return false;
+    }
+    return JSON.stringify(form) !== JSON.stringify(restaurant);
+  }, [form, restaurant]);
+
+  const greetingPreview = useMemo(() => {
+    if (!form) {
+      return "";
+    }
+    const localNow = new Date();
+    const hour = Number(
+      new Intl.DateTimeFormat("en-GB", {
+        hour: "2-digit",
+        hour12: false,
+        timeZone: form.timezone || "Europe/Rome",
+      }).format(localNow)
+    );
+    const saluto = hour < 14 ? "Buongiorno" : "Buonasera";
+    const custom = form.custom_greeting?.trim();
+    return custom && custom.length > 0
+      ? custom.replaceAll("{saluto}", saluto)
+      : `${saluto}, ${form.name}. Come posso aiutarla?`;
+  }, [form]);
+
+  const readinessChecks = useMemo(() => {
+    if (!form) {
+      return [];
+    }
+
+    return [
+      {
+        label: "Profilo ristorante completo",
+        ready: Boolean(form.name && form.address && form.timezone),
+        icon: <Store size={18} />,
+      },
+      {
+        label: "Linea Twilio collegata",
+        ready: Boolean(form.twilio_phone),
+        icon: <PhoneCall size={18} />,
+      },
+      {
+        label: "Agente ElevenLabs collegato",
+        ready: Boolean(form.elevenlabs_agent_id),
+        icon: <Bot size={18} />,
+      },
+      {
+        label: "Numero umano di backup presente",
+        ready: Boolean(form.escalation_phone),
+        icon: <PhoneForwarded size={18} />,
+      },
+    ] as const;
+  }, [form]);
 
   if (!form || !restaurant) {
     return (
@@ -95,7 +153,47 @@ export default function SettingsPage() {
       title="Impostazioni ristorante"
       subtitle="Configura identità, numeri telefonici e cervello AI del ristorante senza toccare codice."
     >
-      <div className="grid gap-6 xl:grid-cols-[0.55fr_0.45fr]">
+      <div className="space-y-6">
+        <div className="grid gap-4 lg:grid-cols-4">
+          {readinessChecks.map((item) => (
+            <MetricPanel
+              key={item.label}
+              label={item.label}
+              value={item.ready ? "OK" : "Manca"}
+              detail={item.ready ? "Configurazione presente e pronta all’uso." : "Completa questo blocco per evitare buchi operativi."}
+              tone={item.ready ? "olive" : "terracotta"}
+              badge={{ label: item.ready ? "Pronto" : "Da completare", tone: item.ready ? "good" : "warn" }}
+              icon={item.icon}
+            />
+          ))}
+        </div>
+
+        {isDirty || message ? (
+          <div className="sticky top-3 z-30 rounded-[1.5rem] border border-stone/80 bg-white/92 px-4 py-3 shadow-card backdrop-blur">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex flex-wrap items-center gap-2">
+                <StatusBadge tone={isDirty ? "warn" : "good"}>
+                  {isDirty ? "Modifiche non salvate" : "Configurazione sincronizzata"}
+                </StatusBadge>
+                {message ? (
+                  <StatusBadge tone={messageTone === "error" ? "danger" : "good"}>
+                    {message}
+                  </StatusBadge>
+                ) : null}
+              </div>
+              <button
+                type="button"
+                onClick={() => void save()}
+                disabled={saving || !isDirty}
+                className="rounded-full bg-ink px-4 py-3 text-sm font-semibold uppercase tracking-[0.22em] text-ivory transition hover:bg-night disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {saving ? "Salvo..." : "Salva configurazione"}
+              </button>
+            </div>
+          </div>
+        ) : null}
+
+        <div className="grid gap-6 xl:grid-cols-[0.55fr_0.45fr]">
         <SectionCard title="Profilo ristorante" kicker="Core profile">
           <div className="grid gap-4">
             {profileFields.map(({ field, label }) => (
@@ -220,8 +318,17 @@ export default function SettingsPage() {
               </div>
             </div>
 
-            <div className="rounded-[1.5rem] border border-stone/80 bg-white/70 p-4 text-sm leading-7 text-ink/65">
-              Usa <strong>{`{saluto}`}</strong> nel greeting per inserire automaticamente &ldquo;Buongiorno&rdquo; o &ldquo;Buonasera&rdquo; in base all&apos;orario. Esempio: <em>{`{saluto}, Trattoria Madonnina. Come posso aiutarla?`}</em>. Se lasci il campo vuoto, il sistema genera il saluto automaticamente. Le note stile vengono iniettate nel prompt di sistema dell&apos;agente ElevenLabs per calibrare tono e comportamento. Modello LLM, voce e parametri avanzati si configurano direttamente nella console ElevenLabs.
+            <div className="rounded-[1.5rem] border border-stone/80 bg-white/80 p-4">
+              <div className="flex flex-wrap items-center gap-2">
+                <StatusBadge tone="neutral">Anteprima greeting</StatusBadge>
+                <StatusBadge tone="good">{form.timezone}</StatusBadge>
+              </div>
+              <p className="mt-4 rounded-[1.2rem] border border-stone/70 bg-ivory/60 px-4 py-4 font-display text-2xl leading-tight text-ink">
+                {greetingPreview}
+              </p>
+              <p className="mt-3 text-sm leading-7 text-ink/65">
+                Usa <strong>{`{saluto}`}</strong> nel greeting per inserire automaticamente &ldquo;Buongiorno&rdquo; o &ldquo;Buonasera&rdquo; in base all&apos;orario. Se lasci il campo vuoto, il sistema genera il saluto automaticamente. Le note stile vengono iniettate nel prompt di sistema dell&apos;agente ElevenLabs per calibrare tono e comportamento.
+              </p>
             </div>
           </div>
         </SectionCard>
@@ -413,22 +520,20 @@ export default function SettingsPage() {
                 />
               </label>
 
-              <button
-                type="button"
-                onClick={() => void save()}
-                disabled={saving}
-                className="rounded-2xl bg-ink px-5 py-3 text-sm font-semibold uppercase tracking-[0.26em] text-ivory transition hover:bg-night disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {saving ? "Salvo..." : "Salva configurazione"}
-              </button>
-              {message ? (
-                <p className={`text-sm ${messageTone === "error" ? "text-terracotta" : "text-olive"}`}>
-                  {message}
+              <div className="rounded-[1.4rem] border border-stone/80 bg-ivory/60 p-4 text-sm leading-7 text-ink/68">
+                <p className="font-semibold text-ink">Cosa mantenere</p>
+                <p className="mt-2">
+                  Qui stai controllando il vero comportamento operativo del ristorante: turni, chiusure e regole che il telefono rispetta in tempo reale.
                 </p>
-              ) : null}
+                <p className="mt-4 font-semibold text-ink">Cosa migliorare</p>
+                <p className="mt-2">
+                  Tieni i nomi dei turni semplici e riconoscibili dal team. Quando cambi capienza o chiusure, salva prima del rush servizio per evitare promesse non allineate.
+                </p>
+              </div>
             </div>
           </SectionCard>
         </div>
+      </div>
       </div>
     </DashboardShell>
   );

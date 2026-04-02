@@ -5,15 +5,20 @@ import { usePathname, useRouter } from "next/navigation";
 import { ReactNode, useEffect, useMemo, useState } from "react";
 import {
   BarChart3,
+  CalendarClock,
+  CircleAlert,
   CalendarDays,
   CookingPot,
   Menu,
   PhoneCall,
+  PhoneForwarded,
+  RadioTower,
   Settings,
   ShieldCheck,
   X
 } from "lucide-react";
 
+import { StatusBadge } from "@/components/status-badge";
 import { useWorkspace } from "@/components/workspace-provider";
 
 const navigation = [
@@ -45,6 +50,7 @@ export function DashboardShell({
     restaurant,
     restaurants,
     activeRestaurantId,
+    error: workspaceError,
     setActiveRestaurantId,
     logout
   } = useWorkspace();
@@ -60,6 +66,61 @@ export function DashboardShell({
         ["/", "/bookings", "/capacity", "/calls"].includes(item.href)
       ),
     [visibleNavigation]
+  );
+
+  const readinessItems = useMemo(() => {
+    if (!restaurant) {
+      return [];
+    }
+
+    return [
+      {
+        label: restaurant.is_active ? "Ristorante attivo" : "Ristorante in pausa",
+        tone: restaurant.is_active ? "good" : "warn",
+        icon: <CalendarClock size={16} />
+      },
+      {
+        label: restaurant.twilio_phone && restaurant.elevenlabs_agent_id ? "Linea AI pronta" : "Linea AI da collegare",
+        tone: restaurant.twilio_phone && restaurant.elevenlabs_agent_id ? "good" : "warn",
+        icon: <RadioTower size={16} />
+      },
+      {
+        label: restaurant.escalation_phone ? "Escalation umana pronta" : "Manca numero di backup",
+        tone: restaurant.escalation_phone ? "neutral" : "danger",
+        icon: <PhoneForwarded size={16} />
+      }
+    ] as const;
+  }, [restaurant]);
+
+  const headerReadinessItems = useMemo(() => {
+    if (!restaurant) {
+      return [];
+    }
+
+    const issues = [];
+    if (!restaurant.is_active) {
+      issues.push({ label: "Ristorante in pausa", tone: "warn" as const });
+    }
+    if (!(restaurant.twilio_phone && restaurant.elevenlabs_agent_id)) {
+      issues.push({ label: "Linea AI da collegare", tone: "warn" as const });
+    }
+    if (!restaurant.escalation_phone) {
+      issues.push({ label: "Manca backup umano", tone: "danger" as const });
+    }
+
+    return issues.length
+      ? issues
+      : [{ label: "Postazione pronta", tone: "good" as const }];
+  }, [restaurant]);
+
+  const todayLabel = useMemo(
+    () =>
+      new Intl.DateTimeFormat("it-IT", {
+        weekday: "long",
+        day: "2-digit",
+        month: "long"
+      }).format(new Date()),
+    []
   );
 
   useEffect(() => {
@@ -199,6 +260,19 @@ export function DashboardShell({
               <p className="mt-2 text-sm leading-6 text-ivory/65">
                 {restaurant?.address ?? "Seleziona un tenant per vedere i dettagli operativi."}
               </p>
+              {readinessItems.length ? (
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {readinessItems.map((item) => (
+                    <span
+                      key={item.label}
+                      className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-ivory/75"
+                    >
+                      {item.icon}
+                      {item.label}
+                    </span>
+                  ))}
+                </div>
+              ) : null}
             </div>
 
             <div className="mt-4 rounded-[1.5rem] border border-white/10 bg-white/5 p-4">
@@ -252,6 +326,24 @@ export function DashboardShell({
                 );
               })}
             </nav>
+            {readinessItems.length ? (
+              <div className="mt-8 rounded-[1.7rem] border border-white/10 bg-white/5 p-4">
+                <p className="text-xs uppercase tracking-[0.28em] text-gold/70">Stato ristorante</p>
+                <div className="mt-4 space-y-2">
+                  {readinessItems.map((item) => (
+                    <div
+                      key={item.label}
+                      className="flex items-center gap-3 rounded-[1rem] border border-white/8 bg-white/5 px-3 py-3 text-sm text-ivory/78"
+                    >
+                      <div className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-white/10 text-gold/75">
+                        {item.icon}
+                      </div>
+                      <span>{item.label}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
             <div className="mt-auto rounded-[1.7rem] border border-white/10 bg-white/5 p-4">
               <p className="text-xs uppercase tracking-[0.28em] text-gold/70">Profilo</p>
               <p className="mt-3 font-medium text-white">{user.full_name}</p>
@@ -281,6 +373,14 @@ export function DashboardShell({
                   {title}
                 </h2>
                 <p className="mt-2 max-w-2xl text-sm leading-6 text-ink/65">{subtitle}</p>
+                <div className="mt-4 flex flex-wrap gap-2.5">
+                  <StatusBadge tone="neutral">{todayLabel}</StatusBadge>
+                  {headerReadinessItems.map((item) => (
+                    <StatusBadge key={item.label} tone={item.tone}>
+                      {item.label}
+                    </StatusBadge>
+                  ))}
+                </div>
               </div>
               <div className="flex w-full flex-col gap-2.5 sm:flex-row sm:flex-wrap sm:items-center xl:w-auto xl:justify-end">
                 {user.role === "operator" && restaurants.length ? (
@@ -309,6 +409,15 @@ export function DashboardShell({
                 ) : null}
               </div>
             </header>
+            {workspaceError ? (
+              <div className="mb-5 flex items-start gap-3 rounded-[1.5rem] border border-terracotta/20 bg-terracotta/8 px-4 py-4 text-sm text-terracotta xl:mb-6">
+                <CircleAlert size={18} className="mt-0.5 shrink-0" />
+                <div>
+                  <p className="font-semibold">Attenzione workspace</p>
+                  <p className="mt-1 text-terracotta/80">{workspaceError}</p>
+                </div>
+              </div>
+            ) : null}
             {children}
           </div>
         </main>

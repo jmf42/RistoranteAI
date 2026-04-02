@@ -49,7 +49,7 @@ class Settings(BaseSettings):
     rate_limit_sensitive_requests_per_window: int = 60
     db_pool_size: int = 10
     db_max_overflow: int = 20
-    db_pool_timeout_seconds: int = 30
+    db_pool_timeout_seconds: int = 5
     db_pool_recycle_seconds: int = 1800
 
     @field_validator("allowed_origins", mode="before")

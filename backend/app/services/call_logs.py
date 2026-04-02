@@ -170,6 +170,30 @@ def _resolve_restaurant_for_payload(db: Session, payload: dict[str, Any]) -> Res
     )
 
 
+_STALE_PROCESSING_SECONDS = 60
+
+
+def recover_stale_processing_events(db: Session) -> int:
+    """Reset events stuck in 'processing' for more than 60s back to 'pending'."""
+    cutoff = datetime.now(UTC) - timedelta(seconds=_STALE_PROCESSING_SECONDS)
+    stale_events = db.scalars(
+        select(RawWebhookEvent).where(
+            RawWebhookEvent.status == RawWebhookEventStatus.processing,
+            RawWebhookEvent.received_at < cutoff,
+        )
+    ).all()
+    recovered = 0
+    for event in stale_events:
+        event.status = RawWebhookEventStatus.pending
+        event.last_error = "recovered from stale processing state"
+        db.add(event)
+        recovered += 1
+    if recovered:
+        db.commit()
+        json_log("app.webhooks", {"event": "stale_events_recovered", "count": recovered})
+    return recovered
+
+
 def process_webhook_event(db: Session, *, event: RawWebhookEvent, request_id: str | None = None) -> bool:
     if event.status == RawWebhookEventStatus.done:
         return True

@@ -14,7 +14,7 @@ Current verified environment:
 
 Current live schema version last verified:
 
-- `0005 (head)` — migration `0006` is local-only, not applied
+- `0005 (head)` — migrations `0006`, `0007`, and `0008` exist locally and are not yet verified live
 
 Treat the current environment as live staging unless intentionally cleaned and promoted.
 
@@ -100,6 +100,7 @@ gcloud run deploy ristorante-ai-api \
   --project ristorante-ai-20260324-9471 \
   --region europe-west1 \
   --source backend \
+  --min-instances=0 \
   --clear-base-image \
   --allow-unauthenticated
 ```
@@ -111,6 +112,7 @@ gcloud run deploy ristorante-ai-dashboard \
   --project ristorante-ai-20260324-9471 \
   --region europe-west1 \
   --source dashboard \
+  --min-instances=0 \
   --clear-base-image \
   --allow-unauthenticated \
   --set-build-env-vars NEXT_PUBLIC_API_BASE_URL=https://ristorante-ai-api-jc7mvuujwq-ew.a.run.app \
@@ -121,7 +123,7 @@ gcloud run deploy ristorante-ai-dashboard \
 
 The following are implemented locally but not yet deployed. Deploy in this order:
 
-1. Apply migration 0006:
+1. Apply migrations through `head`:
    ```bash
    cd backend
    DATABASE_URL='<supabase-pooler-url>' uv run alembic upgrade head
@@ -133,11 +135,33 @@ The following are implemented locally but not yet deployed. Deploy in this order
      --project ristorante-ai-20260324-9471 \
      --region europe-west1 \
      --source backend \
+     --min-instances=0 \
      --clear-base-image \
      --allow-unauthenticated
    ```
 
 3. Re-enable post-call webhook in ElevenLabs (see section below).
+
+## Supabase RLS Baseline
+
+Ristorante AI uses Supabase for PostgreSQL only. It does **not** expose app data through Supabase client-side APIs.
+
+Production safety rule:
+
+- every application table in schema `public` must have Row Level Security enabled
+- `anon` and `authenticated` must not have table access to application data
+- backend access continues through the database connection used by the app (`postgres` / `service_role`)
+
+The Alembic migration that enforces this baseline is:
+
+- `0008` — enable RLS on all public app tables and lock out `anon` / `authenticated`
+
+If Supabase raises `rls_disabled_in_public`, apply migrations first:
+
+```bash
+cd backend
+DATABASE_URL='<supabase-pooler-url>' uv run alembic upgrade head
+```
 
 ## Re-enabling the Post-Call Webhook
 
@@ -190,10 +214,7 @@ SET full_name = 'New Name'
 WHERE email = 'user@example.com';
 ```
 
-Connect via Cloud SQL Auth Proxy or:
-```bash
-gcloud sql connect <instance-name> --user=postgres --database=<db-name>
-```
+Connect with the Supabase SQL editor, Supabase CLI, or any PostgreSQL client using the Supabase connection string.
 
 ## Verification
 
@@ -284,6 +305,71 @@ Check:
 ### Calls fail with "quota limit exceeded"
 
 This is an ElevenLabs billing limit. Check your usage dashboard at elevenlabs.io → Settings → Subscription. Upgrade plan or wait for billing cycle to reset.
+
+## Cost Guardrails
+
+Ristorante AI should stay on low fixed-cost infrastructure until a measured limitation forces a change.
+
+Rules:
+
+- keep Cloud Run at `--min-instances=0`
+- do not add Cloud SQL, Memorystore, or a Serverless VPC connector without a written reason
+- do not add dedicated workers until a real background-job requirement exists
+- keep Artifact Registry cleanup enabled for Cloud Run source deploy images
+
+Verify Cloud Run is still scale-to-zero:
+
+```bash
+gcloud run services describe ristorante-ai-api \
+  --project ristorante-ai-20260324-9471 \
+  --region europe-west1 \
+  --format='yaml(spec.template.metadata.annotations)'
+
+gcloud run services describe ristorante-ai-dashboard \
+  --project ristorante-ai-20260324-9471 \
+  --region europe-west1 \
+  --format='yaml(spec.template.metadata.annotations)'
+```
+
+If `autoscaling.knative.dev/minScale` appears, remove it unless there is a documented reason to keep warm instances.
+
+Artifact Registry cleanup:
+
+```bash
+gcloud artifacts repositories set-cleanup-policies cloud-run-source-deploy \
+  --project=ristorante-ai-20260324-9471 \
+  --location=europe-west1 \
+  --policy=scripts/gcp_artifact_cleanup_policy.json \
+  --dry-run
+
+gcloud artifacts repositories list-cleanup-policies cloud-run-source-deploy \
+  --project=ristorante-ai-20260324-9471 \
+  --location=europe-west1
+```
+
+After reviewing the dry run, apply the policy for real:
+
+```bash
+gcloud artifacts repositories set-cleanup-policies cloud-run-source-deploy \
+  --project=ristorante-ai-20260324-9471 \
+  --location=europe-west1 \
+  --policy=scripts/gcp_artifact_cleanup_policy.json \
+  --no-dry-run
+```
+
+Billing budget baseline:
+
+```bash
+gcloud beta billing budgets create \
+  --billing-account='<billing-account-id>' \
+  --display-name='Ristorante AI Monthly Budget' \
+  --budget-amount=50USD \
+  --filter-projects=projects/ristorante-ai-20260324-9471 \
+  --threshold-rule=percent=0.25 \
+  --threshold-rule=percent=0.50 \
+  --threshold-rule=percent=0.75 \
+  --threshold-rule=percent=1.00
+```
 
 ### Public `/healthz` returns Google 404
 

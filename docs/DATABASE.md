@@ -22,7 +22,7 @@ As of `2026-03-28`:
 - provider: Supabase
 - verified access path: Supabase pooler URL
 - live schema version: `0005 (head)`
-- migration `0006` exists locally — adds `call_status` to `call_logs` — NOT YET applied to production
+- migrations `0006`, `0007`, and `0008` exist locally — NOT YET applied to production
 
 See `docs/PRODUCTION_STATE.md` for the date-stamped live environment snapshot.
 
@@ -130,6 +130,8 @@ Call summary records:
 | `0004` | 2026-03-25 | Add missing index on `call_logs.booking_id` |
 | `0005` | 2026-03-26 | Flatten `assistant_settings` JSON → `custom_greeting` + `agent_style_notes`; add `users.token_valid_after` |
 | `0006` | 2026-03-28 | Add `call_status` column + index to `call_logs` — **LOCAL ONLY, NOT DEPLOYED** |
+| `0007` | 2026-03-31 | Add `raw_webhook_events` inbox table — **LOCAL ONLY, NOT DEPLOYED** |
+| `0008` | 2026-04-01 | Enable RLS on all public app tables; preserve backend access for `postgres` / `service_role` — **LOCAL ONLY, NOT DEPLOYED** |
 
 The important lesson is not just the migration number. Before editing restaurant AI settings or auth token invalidation, verify:
 
@@ -155,6 +157,8 @@ These indexes are missing and should be added in a future migration:
 - keep `PII_ENCRYPTION_KEY` stable across deployments — changing it makes historical data unreadable
 - keep the Supabase pooler URL as the safe default unless a direct connection is proven valid
 - `call_status` column (migration 0006) must be applied before deploying the backend code that uses it
+- every application table in schema `public` must keep Row Level Security enabled
+- `anon` and `authenticated` should have no table access to application data
 
 ## Connection and Pooling
 
@@ -186,3 +190,4 @@ Important:
 - the live Cloud Run deployment points at Supabase through the pooler
 - backups and PITR are managed at the Supabase platform level, not from this repo
 - this repo can verify migrations and runtime behavior, but backup policy requires Supabase-side confirmation
+- migration `0008` is the Supabase hardening baseline for public schema tables

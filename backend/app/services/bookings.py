@@ -35,11 +35,11 @@ def generate_confirmation_code(db: Session, restaurant: Restaurant, booking_date
             Booking.restaurant_id == restaurant.id,
         )
     ) or 0
-    candidate = f"{prefix}-{date_part}{existing_count + 1:02d}"
-    # Collision guard: if the code exists (e.g. concurrent insert), increment
-    if db.scalar(select(Booking.id).where(Booking.confirmation_code == candidate)):
-        candidate = f"{prefix}-{date_part}{existing_count + 2:02d}"
-    return candidate
+    for attempt in range(existing_count + 1, existing_count + 20):
+        candidate = f"{prefix}-{date_part}{attempt:02d}"
+        if not db.scalar(select(Booking.id).where(Booking.confirmation_code == candidate)):
+            return candidate
+    raise RuntimeError(f"Could not generate unique confirmation code for {prefix}-{date_part}")
 
 
 def booking_to_read(booking: Booking) -> BookingRead:

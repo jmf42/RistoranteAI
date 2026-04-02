@@ -1,15 +1,19 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { ClipboardCheck, PhoneCall, PhoneForwarded, TriangleAlert } from "lucide-react";
 
 import { DashboardShell } from "@/components/dashboard-shell";
 import { Heatmap } from "@/components/heatmap";
+import { MetricPanel } from "@/components/metric-panel";
 import { SectionCard } from "@/components/section-card";
+import { StatusBadge } from "@/components/status-badge";
 import { useWorkspace } from "@/components/workspace-provider";
 import { ApiError, apiDownload, apiFetch, queryString } from "@/lib/api";
 import {
   formatCallOutcomeLabel,
   formatCallStatusLabel,
+  getCallOperationalStatusLabel,
   getCallPresentation,
   isLowSignalCall,
 } from "@/lib/call-presenter";
@@ -41,10 +45,14 @@ export default function CallsPage() {
   const selectedCall = calls.find((call) => call.id === selectedCallId) ?? null;
   const visibleCalls = calls.filter((call) => !isLowSignalCall(call));
   const archivedCalls = calls.filter((call) => isLowSignalCall(call));
+  const followUpCalls = visibleCalls.filter(
+    (call) => call.call_status === "failed" || call.outcome === "tool_error" || call.outcome === "abandoned",
+  );
   const followUpCount = visibleCalls.filter(
     (call) => call.call_status === "failed" || call.outcome === "tool_error" || call.outcome === "abandoned",
   ).length;
   const createdCount = calls.filter((call) => call.outcome === "booking_created").length;
+  const handledCount = visibleCalls.length - followUpCount;
 
   useEffect(() => {
     if (!activeRestaurantId) return;
@@ -130,31 +138,70 @@ export default function CallsPage() {
       title="Chiamate"
       subtitle="Vedi subito cosa è andato bene, cosa richiede follow-up e apri il dettaglio solo quando serve."
     >
-      <div className="grid gap-6 xl:grid-cols-[0.58fr_0.42fr]">
+      <div className="space-y-6">
+        <div className="grid gap-4 lg:grid-cols-4">
+          <MetricPanel
+            label="Chiamate utili"
+            value={visibleCalls.length.toFixed(0)}
+            detail="Solo le conversazioni che contano davvero per il servizio."
+            tone="gold"
+            icon={<PhoneCall size={18} />}
+          />
+          <MetricPanel
+            label="Prenotazioni chiuse"
+            value={createdCount.toFixed(0)}
+            detail="Chiamate in cui l’agente ha davvero portato un tavolo in casa."
+            tone="olive"
+            icon={<ClipboardCheck size={18} />}
+          />
+          <MetricPanel
+            label="Da richiamare o verificare"
+            value={followUpCount.toFixed(0)}
+            detail="Richieste che meritano attenzione umana o controllo operativo."
+            tone="terracotta"
+            icon={<TriangleAlert size={18} />}
+          />
+          <MetricPanel
+            label="Gestite senza attrito"
+            value={handledCount.toFixed(0)}
+            detail="Conversazioni chiuse bene, senza errori o follow-up urgente."
+            tone="ink"
+            icon={<PhoneForwarded size={18} />}
+          />
+        </div>
+
+        <div className="grid gap-6 xl:grid-cols-[0.58fr_0.42fr]">
         <div className="min-w-0 space-y-6">
-          <div className="ui-snap-row -mx-1 flex snap-x gap-3 overflow-x-auto px-1 pb-1 sm:mx-0 sm:grid sm:grid-cols-3 sm:overflow-visible sm:px-0">
-            <div className="min-w-[68vw] snap-start rounded-[1.45rem] border border-stone/80 bg-white/80 p-4 sm:min-w-0">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-terracotta/70">
-                Chiamate nel periodo
-              </p>
-              <p className="mt-3 font-display text-4xl text-ink">{visibleCalls.length}</p>
-              <p className="mt-2 text-sm leading-6 text-ink/55">Solo le conversazioni che contano davvero per il servizio.</p>
-            </div>
-            <div className="min-w-[68vw] snap-start rounded-[1.45rem] border border-stone/80 bg-white/80 p-4 sm:min-w-0">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-terracotta/70">
-                Prenotazioni chiuse
-              </p>
-              <p className="mt-3 font-display text-4xl text-ink">{createdCount}</p>
-              <p className="mt-2 text-sm leading-6 text-ink/55">Chiamate in cui l’agente ha chiuso davvero un tavolo.</p>
-            </div>
-            <div className="min-w-[68vw] snap-start rounded-[1.45rem] border border-stone/80 bg-white/80 p-4 sm:min-w-0">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-terracotta/70">
-                Da seguire
-              </p>
-              <p className="mt-3 font-display text-4xl text-ink">{followUpCount}</p>
-              <p className="mt-2 text-sm leading-6 text-ink/55">Richieste dove serve controllo umano o un richiamo.</p>
-            </div>
-          </div>
+          {followUpCalls.length ? (
+            <SectionCard title="Follow-up prioritario" kicker="Da guardare adesso">
+              <div className="space-y-3">
+                {followUpCalls.slice(0, 3).map((call) => (
+                  <button
+                    key={call.id}
+                    type="button"
+                    onClick={() => {
+                      void loadTranscript(call.id);
+                    }}
+                    className="w-full rounded-[1.35rem] border border-terracotta/20 bg-terracotta/6 p-4 text-left transition hover:border-terracotta/35"
+                  >
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                      <div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <StatusBadge tone="danger">Da seguire</StatusBadge>
+                          <StatusBadge tone="neutral">{formatCallOutcomeLabel(call.outcome)}</StatusBadge>
+                        </div>
+                        <p className="mt-3 font-semibold text-ink">{getCallPresentation(call).headline}</p>
+                        <p className="mt-2 text-sm leading-6 text-ink/65">{getCallPresentation(call).nextStep}</p>
+                      </div>
+                      <p className="text-xs uppercase tracking-[0.18em] text-ink/45">
+                        {formatDateTime(call.started_at)}
+                      </p>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </SectionCard>
+          ) : null}
 
           <SectionCard title="Registro chiamate" kicker={`Ultimi ${days} giorni`}>
             <div className="mb-5 grid gap-4 sm:grid-cols-2">
@@ -248,10 +295,10 @@ export default function CallsPage() {
             ) : (
               <div className="h-64 animate-pulse rounded-[1.6rem] bg-ivory/70" />
             )}
-          </SectionCard>
-        </div>
+        </SectionCard>
+      </div>
 
-        <div className="min-w-0 space-y-6">
+        <div className="min-w-0 space-y-6 xl:sticky xl:top-5 xl:self-start">
           <SectionCard title="Dettaglio chiamata" kicker="Su richiesta">
             {error ? (
               <p className="rounded-[1.45rem] border border-terracotta/30 bg-terracotta/10 px-4 py-4 text-sm text-terracotta">
@@ -272,12 +319,12 @@ export default function CallsPage() {
                     </span>
                     <span
                       className={`rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] ${
-                        selectedCall.call_status === "failed"
+                        getCallPresentation(selectedCall).needsAttention
                           ? "bg-terracotta/10 text-terracotta"
                           : "bg-olive/10 text-olive"
                       }`}
                     >
-                      {formatCallStatusLabel(selectedCall.call_status)}
+                      {getCallOperationalStatusLabel(selectedCall)}
                     </span>
                   </div>
                   <p className="mt-3 font-semibold text-ink">{getCallPresentation(selectedCall).headline}</p>
@@ -334,9 +381,7 @@ export default function CallsPage() {
                     key={item.outcome}
                     className="rounded-[1.35rem] border border-stone/80 bg-ivory/70 p-4"
                   >
-                    <p className="font-semibold capitalize text-ink">
-                      {item.outcome.replaceAll("_", " ")}
-                    </p>
+                    <p className="font-semibold text-ink">{formatCallOutcomeLabel(item.outcome as CallLog["outcome"])}</p>
                     <p className="mt-2 text-sm text-ink/60">{item.total} chiamate nel periodo.</p>
                   </article>
                 ))
@@ -348,6 +393,7 @@ export default function CallsPage() {
             </div>
           </SectionCard>
         </div>
+      </div>
       </div>
     </DashboardShell>
   );
@@ -407,8 +453,8 @@ function CallRow({
           <p className="mt-2">
             {Math.floor(call.duration_seconds / 60)}:{String(call.duration_seconds % 60).padStart(2, "0")}
           </p>
-          <p className={`mt-1 ${call.call_status === "failed" ? "text-terracotta" : ""}`}>
-            {formatCallStatusLabel(call.call_status)}
+          <p className={`mt-1 ${presentation.needsAttention ? "text-terracotta" : ""}`}>
+            {getCallOperationalStatusLabel(call)}
           </p>
         </div>
       </div>

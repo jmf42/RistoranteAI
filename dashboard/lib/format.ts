@@ -29,3 +29,18 @@ export function trendLabel(value: number): string {
 export function weekdayLabel(index: number): string {
   return ["Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom"][index] ?? "";
 }
+
+function pad(value: number): string {
+  return String(value).padStart(2, "0");
+}
+
+export function toLocalDateInputValue(date: Date = new Date()): string {
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+export function shiftLocalDateInputValue(value: string, days: number): string {
+  const [year, month, day] = value.split("-").map(Number);
+  const next = new Date(year, (month ?? 1) - 1, day ?? 1);
+  next.setDate(next.getDate() + days);
+  return toLocalDateInputValue(next);
+}

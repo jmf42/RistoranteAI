@@ -8,6 +8,13 @@ from app.models import Restaurant
 from tests.conftest import login
 
 
+def _next_non_monday(days_ahead: int = 1) -> date:
+    candidate = date.today() + timedelta(days=days_ahead)
+    while candidate.weekday() == 0:
+        candidate += timedelta(days=1)
+    return candidate
+
+
 def test_create_booking_via_dashboard(client):
     login(client)
     restaurant_id = client.get("/api/restaurants/current").json()["id"]
@@ -38,7 +45,7 @@ def test_tool_booking_flow(client, db_session):
         headers={"X-Ristorante-Tool-Secret": "local-tool-secret"},
         json={
             "restaurant_id": restaurant.id,
-            "date": (date.today() + timedelta(days=4)).isoformat(),
+            "date": _next_non_monday(days_ahead=4).isoformat(),
             "time": "21:00:00",
             "party_size": 2,
             "customer_name": "Neri",
