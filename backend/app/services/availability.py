@@ -89,6 +89,27 @@ def turno_remaining_covers(
     return max(max_covers - int(booked), 0)
 
 
+def all_turno_booked_covers(
+    db: Session,
+    *,
+    restaurant_id: str,
+    booking_date: date,
+    exclude_booking_id: str | None = None,
+) -> dict[str, int]:
+    """Fetch booked covers for ALL turni in a single GROUP BY query."""
+    stmt = select(
+        Booking.turno,
+        func.coalesce(func.sum(Booking.party_size), 0),
+    ).where(
+        Booking.restaurant_id == restaurant_id,
+        Booking.date == booking_date,
+        Booking.status.in_(ACTIVE_STATUSES),
+    ).group_by(Booking.turno)
+    if exclude_booking_id:
+        stmt = stmt.where(Booking.id != exclude_booking_id)
+    return dict(db.execute(stmt).all())
+
+
 def validate_open_rules(
     restaurant: Restaurant,
     *,
@@ -144,26 +165,30 @@ def check_availability(
         return {"open": False, "available": False, "reason": reason, "alternatives": []}
 
     turni = parse_turni(restaurant)
+
+    # --- Single DB query for ALL turno capacities --------------------------
+    booked_map = all_turno_booked_covers(
+        db,
+        restaurant_id=restaurant.id,
+        booking_date=booking_date,
+        exclude_booking_id=exclude_booking_id,
+    )
+
+    def _remaining(turno: Turno) -> int:
+        return max(turno.max_covers - int(booked_map.get(turno.name, 0)), 0)
+
+    # --- Turno resolution --------------------------------------------------
     selected_turno = resolve_turno(turni, requested_time)
     if not selected_turno:
-        alternatives = []
-        for turno in turni:
-            remaining = turno_remaining_covers(
-                db,
-                restaurant_id=restaurant.id,
-                booking_date=booking_date,
-                turno_name=turno.name,
-                max_covers=turno.max_covers,
-                exclude_booking_id=exclude_booking_id,
-            )
-            if remaining >= party_size:
-                alternatives.append(
-                    {
-                        "time": turno.start.strftime("%H:%M"),
-                        "turno": turno.name,
-                        "remaining": remaining,
-                    }
-                )
+        alternatives = [
+            {
+                "time": turno.start.strftime("%H:%M"),
+                "turno": turno.name,
+                "remaining": _remaining(turno),
+            }
+            for turno in turni
+            if _remaining(turno) >= party_size
+        ]
         turni_ranges = ", ".join(f"{t.start.strftime('%H:%M')}-{t.end.strftime('%H:%M')}" for t in turni)
         time_str = requested_time.strftime("%H:%M") if requested_time else "non specificato"
         return {
@@ -176,14 +201,7 @@ def check_availability(
             "alternatives": alternatives[:3],
         }
 
-    remaining = turno_remaining_covers(
-        db,
-        restaurant_id=restaurant.id,
-        booking_date=booking_date,
-        turno_name=selected_turno.name,
-        max_covers=selected_turno.max_covers,
-        exclude_booking_id=exclude_booking_id,
-    )
+    remaining = _remaining(selected_turno)
     if remaining >= party_size:
         return {
             "open": True,
@@ -196,26 +214,15 @@ def check_availability(
             "alternatives": [],
         }
 
-    alternatives = []
-    for turno in turni:
-        if turno.name == selected_turno.name:
-            continue
-        turno_remaining = turno_remaining_covers(
-            db,
-            restaurant_id=restaurant.id,
-            booking_date=booking_date,
-            turno_name=turno.name,
-            max_covers=turno.max_covers,
-            exclude_booking_id=exclude_booking_id,
-        )
-        if turno_remaining >= party_size:
-            alternatives.append(
-                {
-                    "time": representative_time(turno, requested_time),
-                    "turno": turno.name,
-                    "remaining": turno_remaining - party_size,
-                }
-            )
+    alternatives = [
+        {
+            "time": representative_time(turno, requested_time),
+            "turno": turno.name,
+            "remaining": _remaining(turno) - party_size,
+        }
+        for turno in turni
+        if turno.name != selected_turno.name and _remaining(turno) >= party_size
+    ]
     return {"open": True, "available": False, "alternatives": alternatives[:2]}
 
 

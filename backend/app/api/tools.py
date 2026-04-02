@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, Request
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_db, get_restaurant_or_404, verify_tool_secret
+from app.api.deps import get_db, get_restaurant_cached, get_restaurant_or_404, verify_tool_secret
 from app.core.observability import json_log
 from app.models import Booking
 from app.schemas.booking import BookingCreate, BookingUpdate
@@ -49,7 +49,7 @@ def check_availability_route(
     payload: CheckAvailabilityRequest,
     db: Session = Depends(get_db),
 ) -> CheckAvailabilityResponse:
-    restaurant = get_restaurant_or_404(db, payload.restaurant_id)
+    restaurant = get_restaurant_cached(db, payload.restaurant_id)
     result = check_availability(
         db,
         restaurant=restaurant,
@@ -66,7 +66,8 @@ def create_booking_tool(
     request: Request,
     db: Session = Depends(get_db),
 ) -> CreateBookingToolResponse:
-    get_restaurant_or_404(db, payload.restaurant_id)
+    # No pre-fetch needed — create_booking() does lock_restaurant() which
+    # validates existence AND acquires the FOR UPDATE lock in one query.
     booking_payload = BookingCreate(
         restaurant_id=payload.restaurant_id,
         date=payload.date,

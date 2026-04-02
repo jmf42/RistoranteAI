@@ -7,11 +7,16 @@ from fastapi import Depends, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.cache import TTLCache
 from app.core.config import settings
 from app.core.database import SessionLocal
 from app.core.observability import json_log
 from app.core.security import decode_access_token
 from app.models import Restaurant, User, UserRestaurant
+
+# Short-lived cache for restaurant config (turni, hours, closures).
+# Avoids a DB round-trip on every tool call during a phone conversation.
+_restaurant_cache = TTLCache(default_ttl=60)
 
 
 def get_db() -> Generator[Session]:
@@ -101,6 +106,24 @@ def get_restaurant_or_404(db: Session, restaurant_id: str) -> Restaurant:
     restaurant = db.scalar(select(Restaurant).where(Restaurant.id == restaurant_id))
     if not restaurant:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Restaurant not found")
+    return restaurant
+
+
+def get_restaurant_cached(db: Session, restaurant_id: str) -> Restaurant:
+    """Return restaurant from in-memory cache (60s TTL) or DB.
+
+    Use this on the hot voice-tool path where the restaurant config
+    (turni, hours, closures) rarely changes but is read on every call.
+    """
+    cache_key = f"restaurant:{restaurant_id}"
+    cached: Restaurant | None = _restaurant_cache.get(cache_key)
+    if cached is not None:
+        # Merge into current session so lazy attributes work
+        return db.merge(cached, load=False)
+    restaurant = db.scalar(select(Restaurant).where(Restaurant.id == restaurant_id))
+    if not restaurant:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Restaurant not found")
+    _restaurant_cache.set(cache_key, restaurant, ttl=60)
     return restaurant
 
 
