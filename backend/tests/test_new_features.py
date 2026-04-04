@@ -316,7 +316,9 @@ class TestBookingAuditTrail:
                 "customer_phone": "+393331119999",
             },
         )
-        assert resp.status_code == 404
+        # Returns structured 200 with success=False (voice-agent-friendly)
+        assert resp.status_code == 200
+        assert resp.json()["success"] is False
         # Only events from seeded bookings (which are 3 — created events)
         events = db_session.scalars(select(BookingEvent)).all()
         for e in events:

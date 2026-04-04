@@ -225,8 +225,11 @@ def test_tool_create_booking_missing_restaurant_returns_not_found(client):
             "customer_phone": "+393331111111",
         },
     )
-    assert response.status_code == 404
-    assert response.json()["detail"] == "Restaurant not found"
+    # Returns structured 200 with success=False (better for voice agent than HTTP 404)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["success"] is False
+    assert "ristorante" in data["reason"].lower()
 
 
 def test_bookings_list_handles_legacy_unreadable_pii_without_crashing(client, db_session):

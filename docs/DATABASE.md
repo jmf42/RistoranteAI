@@ -81,7 +81,7 @@ Reservation records:
 - special requests (nullable)
 - optional linked `customer_id` (FK, indexed)
 
-**Missing index:** `(restaurant_id, date)` composite — used in every availability check.
+**Performance note:** local code now includes composite booking indexes for availability and duplicate-check lookups via migration `0009`. Live environments still need that migration applied before they benefit.
 
 ### `customers`
 
@@ -132,6 +132,7 @@ Call summary records:
 | `0006` | 2026-03-28 | Add `call_status` column + index to `call_logs` — **LOCAL ONLY, NOT DEPLOYED** |
 | `0007` | 2026-03-31 | Add `raw_webhook_events` inbox table — **LOCAL ONLY, NOT DEPLOYED** |
 | `0008` | 2026-04-01 | Enable RLS on all public app tables; preserve backend access for `postgres` / `service_role` — **LOCAL ONLY, NOT DEPLOYED** |
+| `0009` | 2026-04-02 | Add composite booking indexes for availability and duplicate-check queries — **LOCAL ONLY, NOT DEPLOYED** |
 
 The important lesson is not just the migration number. Before editing restaurant AI settings or auth token invalidation, verify:
 
@@ -147,7 +148,6 @@ These indexes are missing and should be added in a future migration:
 | Table | Missing Index | Priority | Why |
 |-------|--------------|----------|-----|
 | `users` | `restaurant_id` | High | Tenant filtering queries |
-| `bookings` | `(restaurant_id, date)` composite | High | Every availability check uses this |
 | `customers` | `last_booking_date` | Low | Customer recency queries |
 
 ## Production Rules

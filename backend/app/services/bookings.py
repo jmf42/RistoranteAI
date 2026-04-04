@@ -194,8 +194,8 @@ def create_booking(
     normalized_phone = normalize_phone(payload.customer_phone)
     phone_hash = hash_phone(normalized_phone)
     recent_cutoff = datetime.now(UTC) - timedelta(minutes=5)
-    duplicate = db.scalar(
-        select(Booking).where(
+    duplicate_id = db.scalar(
+        select(Booking.id).where(
             Booking.restaurant_id == restaurant.id,
             Booking.date == payload.date,
             Booking.time == payload.time,
@@ -205,7 +205,7 @@ def create_booking(
             Booking.created_at >= recent_cutoff,
         )
     )
-    if duplicate:
+    if duplicate_id:
         return None, {
             "reason": _italian_reason("booking_already_exists"),
             "alternatives": [],
@@ -242,7 +242,6 @@ def create_booking(
     )
     db.add(booking)
     db.flush()
-    db.refresh(booking)
 
     log_booking_event(
         db,

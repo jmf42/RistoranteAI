@@ -171,7 +171,6 @@ These are documented issues that exist but have not been fixed yet:
 | No pagination on calls/bookings | High | Unbounded queries, memory risk |
 | Heatmap uses UTC not local timezone | Medium | Analytics show wrong busy hours |
 | Confirmation codes are sequential | Medium | Predictable and enumerable |
-| No composite index on `(restaurant_id, date)` | High | Slow availability checks |
 | Operator role not scoped to restaurants | Medium | Operators can access any restaurant |
 
 ## Telephony Safety Principle
