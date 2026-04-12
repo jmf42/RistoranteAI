@@ -1,12 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { ClipboardCheck, PhoneCall, PhoneForwarded, TriangleAlert } from "lucide-react";
+import { Search } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 
 import { DashboardShell } from "@/components/dashboard-shell";
-import { Heatmap } from "@/components/heatmap";
-import { MetricPanel } from "@/components/metric-panel";
-import { SectionCard } from "@/components/section-card";
 import { StatusBadge } from "@/components/status-badge";
 import { useWorkspace } from "@/components/workspace-provider";
 import { ApiError, apiDownload, apiFetch, queryString } from "@/lib/api";
@@ -15,449 +12,374 @@ import {
   formatCallStatusLabel,
   getCallOperationalStatusLabel,
   getCallPresentation,
-  isLowSignalCall,
+  isFollowUpCall,
 } from "@/lib/call-presenter";
 import { formatDateTime } from "@/lib/format";
-import { CallLog, TranscriptResponse, TrendBundle } from "@/lib/types";
+import { CallLog, TranscriptResponse } from "@/lib/types";
 
 const callOutcomes = [
-  { value: "", label: "Tutti gli esiti" },
-  { value: "booking_created", label: "Prenotazione creata" },
-  { value: "booking_modified", label: "Prenotazione modificata" },
-  { value: "booking_cancelled", label: "Prenotazione cancellata" },
-  { value: "info_provided", label: "Info fornite" },
-  { value: "escalated", label: "Trasferita a umano" },
-  { value: "abandoned", label: "Abbandonata" },
-  { value: "tool_error", label: "Errore tecnico" }
+  { value: "", label: "Tutti" },
+  { value: "booking_created", label: "Prenotate" },
+  { value: "booking_modified", label: "Modificate" },
+  { value: "booking_cancelled", label: "Cancellate" },
+  { value: "info_provided", label: "Info" },
+  { value: "escalated", label: "Passate al ristorante" },
+  { value: "abandoned", label: "Interrotte" },
+  { value: "tool_error", label: "Errori" },
 ];
 
 export default function CallsPage() {
   const { activeRestaurantId } = useWorkspace();
   const [calls, setCalls] = useState<CallLog[]>([]);
-  const [trends, setTrends] = useState<TrendBundle | null>(null);
   const [transcript, setTranscript] = useState<TranscriptResponse | null>(null);
   const [selectedCallId, setSelectedCallId] = useState<string | null>(null);
   const [days, setDays] = useState(14);
   const [outcome, setOutcome] = useState("");
+  const [search, setSearch] = useState("");
+  const [attentionOnly, setAttentionOnly] = useState(false);
+  const [sort, setSort] = useState("follow_up");
   const [loadingCalls, setLoadingCalls] = useState(true);
   const [loadingTranscript, setLoadingTranscript] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
   const selectedCall = calls.find((call) => call.id === selectedCallId) ?? null;
-  const visibleCalls = calls.filter((call) => !isLowSignalCall(call));
-  const archivedCalls = calls.filter((call) => isLowSignalCall(call));
-  const followUpCalls = visibleCalls.filter(
-    (call) => call.call_status === "failed" || call.outcome === "tool_error" || call.outcome === "abandoned",
-  );
-  const followUpCount = visibleCalls.filter(
-    (call) => call.call_status === "failed" || call.outcome === "tool_error" || call.outcome === "abandoned",
-  ).length;
-  const createdCount = calls.filter((call) => call.outcome === "booking_created").length;
-  const handledCount = visibleCalls.length - followUpCount;
 
   useEffect(() => {
     if (!activeRestaurantId) return;
+
     let ignore = false;
     setLoadingCalls(true);
     setError(null);
-    Promise.all([
-      apiFetch<CallLog[]>(
-        `/api/calls${queryString({ restaurant_id: activeRestaurantId, days, outcome: outcome || undefined })}`
-      ),
-      apiFetch<TrendBundle>(
-        `/api/analytics/trends${queryString({ restaurant_id: activeRestaurantId, days })}`
-      )
-    ]).then(([callsPayload, trendPayload]) => {
-      if (ignore) return;
-      setCalls(callsPayload);
-      setTrends(trendPayload);
-      setSelectedCallId((current) =>
-        current && !callsPayload.some((call) => call.id === current) ? null : current
-      );
-      setTranscript((current) =>
-        current && !callsPayload.some((call) => call.id === current.call_id) ? null : current
-      );
-    }).catch((fetchError: unknown) => {
-      if (ignore) return;
-      const message = fetchError instanceof ApiError ? fetchError.message : "Impossibile caricare le chiamate.";
-      setError(message);
-    }).finally(() => {
-      if (!ignore) {
-        setLoadingCalls(false);
-      }
-    });
+
+    void apiFetch<CallLog[]>(
+      `/api/calls${queryString({
+        restaurant_id: activeRestaurantId,
+        days,
+        outcome: outcome || undefined,
+        search: search.trim() || undefined,
+        attention_only: attentionOnly ? "true" : undefined,
+        sort,
+      })}`,
+    )
+      .then((payload) => {
+        if (ignore) return;
+        setCalls(payload);
+        setSelectedCallId((current) => current && payload.some((item) => item.id === current) ? current : payload[0]?.id ?? null);
+      })
+      .catch((caught: unknown) => {
+        if (!ignore) {
+          setCalls([]);
+          setSelectedCallId(null);
+          setError(caught instanceof ApiError ? caught.message : "Impossibile caricare le chiamate.");
+        }
+      })
+      .finally(() => {
+        if (!ignore) {
+          setLoadingCalls(false);
+        }
+      });
+
     return () => {
       ignore = true;
     };
-  }, [activeRestaurantId, days, outcome]);
+  }, [activeRestaurantId, attentionOnly, days, outcome, search, sort]);
 
-  async function loadTranscript(callId: string) {
-    if (!activeRestaurantId) {
+  useEffect(() => {
+    if (!selectedCallId || !activeRestaurantId) {
+      setTranscript(null);
       return;
     }
-    setSelectedCallId(callId);
+
+    let ignore = false;
     setLoadingTranscript(true);
     setError(null);
-    try {
-      const payload = await apiFetch<TranscriptResponse>(
-        `/api/calls/${callId}/transcript${queryString({ restaurant_id: activeRestaurantId })}`
-      );
-      setTranscript(payload);
-    } catch (fetchError) {
-      const message =
-        fetchError instanceof ApiError ? fetchError.message : "Impossibile caricare il transcript.";
-      setError(message);
-      setTranscript(null);
-    } finally {
-      setLoadingTranscript(false);
-    }
-  }
+
+    void apiFetch<TranscriptResponse>(
+      `/api/calls/${selectedCallId}/transcript${queryString({ restaurant_id: activeRestaurantId })}`,
+    )
+      .then((payload) => {
+        if (!ignore) {
+          setTranscript(payload);
+        }
+      })
+      .catch((caught: unknown) => {
+        if (!ignore) {
+          setTranscript(null);
+          setError(caught instanceof ApiError ? caught.message : "Impossibile caricare il transcript.");
+        }
+      })
+      .finally(() => {
+        if (!ignore) {
+          setLoadingTranscript(false);
+        }
+      });
+
+    return () => {
+      ignore = true;
+    };
+  }, [activeRestaurantId, selectedCallId]);
+
+  const followUpCount = useMemo(() => calls.filter((call) => isFollowUpCall(call)).length, [calls]);
 
   async function exportCalls() {
-    if (!activeRestaurantId) {
-      return;
-    }
+    if (!activeRestaurantId) return;
     setError(null);
     try {
       await apiDownload(
-        `/api/calls/export${queryString({
-          restaurant_id: activeRestaurantId,
-          days,
-          outcome: outcome || undefined,
-        })}`,
+        `/api/calls/export${queryString({ restaurant_id: activeRestaurantId, days, outcome: outcome || undefined })}`,
         "calls.csv",
       );
-    } catch (fetchError) {
-      const message =
-        fetchError instanceof ApiError ? fetchError.message : "Export chiamate non riuscito.";
-      setError(message);
+    } catch (caught) {
+      setError(caught instanceof ApiError ? caught.message : "Export non riuscito.");
     }
   }
 
   return (
     <DashboardShell
       title="Chiamate"
-      subtitle="Vedi subito cosa è andato bene, cosa richiede follow-up e apri il dettaglio solo quando serve."
+      subtitle="Cosa è successo al telefono e cosa richiede attenzione."
     >
       <div className="space-y-6">
-        <div className="grid gap-4 lg:grid-cols-4">
-          <MetricPanel
-            label="Chiamate utili"
-            value={visibleCalls.length.toFixed(0)}
-            detail="Solo le conversazioni che contano davvero per il servizio."
-            tone="gold"
-            icon={<PhoneCall size={18} />}
-          />
-          <MetricPanel
+        <div className="grid gap-3 md:grid-cols-[1.5fr_1fr_1fr]">
+          <StatCard label="Nel periodo" value={`${calls.length}`} detail="Chiamate filtrate." />
+          <StatCard label="Da seguire" value={`${followUpCount}`} detail="Fallite, interrotte o con problemi tecnici." tone={followUpCount > 0 ? "alert" : "calm"} />
+          <StatCard
             label="Prenotazioni chiuse"
-            value={createdCount.toFixed(0)}
-            detail="Chiamate in cui l’agente ha davvero portato un tavolo in casa."
-            tone="olive"
-            icon={<ClipboardCheck size={18} />}
-          />
-          <MetricPanel
-            label="Da richiamare o verificare"
-            value={followUpCount.toFixed(0)}
-            detail="Richieste che meritano attenzione umana o controllo operativo."
-            tone="terracotta"
-            icon={<TriangleAlert size={18} />}
-          />
-          <MetricPanel
-            label="Gestite senza attrito"
-            value={handledCount.toFixed(0)}
-            detail="Conversazioni chiuse bene, senza errori o follow-up urgente."
-            tone="ink"
-            icon={<PhoneForwarded size={18} />}
+            value={`${calls.filter((call) => call.outcome === "booking_created").length}`}
+            detail="Chiamate concluse con una nuova prenotazione."
           />
         </div>
 
-        <div className="grid gap-6 xl:grid-cols-[0.58fr_0.42fr]">
-        <div className="min-w-0 space-y-6">
-          {followUpCalls.length ? (
-            <SectionCard title="Follow-up prioritario" kicker="Da guardare adesso">
+        <section className="rounded-[2rem] border border-stone/80 bg-white/82 p-5 shadow-card sm:p-6">
+          <div className="grid gap-3 xl:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1fr)_auto]">
+            <label className="min-w-0">
+              <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-ink/45">Cerca</span>
+              <div className="flex items-center gap-3 rounded-[1.2rem] border border-stone bg-ivory/70 px-4 py-3">
+                <Search size={16} className="shrink-0 text-ink/35" />
+                <input
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  placeholder="Riassunto, transcript, riferimento..."
+                  className="w-full bg-transparent text-sm text-ink outline-none placeholder:text-ink/35"
+                />
+              </div>
+            </label>
+
+            <label>
+              <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-ink/45">Periodo</span>
+              <select
+                className="w-full rounded-[1.2rem] border border-stone bg-ivory/70 px-4 py-3 text-sm text-ink outline-none focus:border-gold"
+                value={days}
+                onChange={(event) => setDays(Number(event.target.value))}
+              >
+                <option value={7}>7 giorni</option>
+                <option value={14}>14 giorni</option>
+                <option value={30}>30 giorni</option>
+              </select>
+            </label>
+
+            <label>
+              <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-ink/45">Esito</span>
+              <select
+                className="w-full rounded-[1.2rem] border border-stone bg-ivory/70 px-4 py-3 text-sm text-ink outline-none focus:border-gold"
+                value={outcome}
+                onChange={(event) => setOutcome(event.target.value)}
+              >
+                {callOutcomes.map((item) => (
+                  <option key={item.value || "all"} value={item.value}>
+                    {item.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <div className="flex flex-col justify-end gap-3 sm:flex-row xl:flex-col">
+              <label className="inline-flex items-center gap-3 rounded-[1.2rem] border border-stone bg-ivory/70 px-4 py-3 text-sm text-ink">
+                <input
+                  type="checkbox"
+                  checked={attentionOnly}
+                  onChange={(event) => setAttentionOnly(event.target.checked)}
+                  className="h-4 w-4 rounded border-stone text-ink focus:ring-gold"
+                />
+                Solo da seguire
+              </label>
+              <button
+                type="button"
+                onClick={() => void exportCalls()}
+                className="rounded-[1.2rem] border border-stone px-4 py-3 text-xs font-semibold uppercase tracking-[0.18em] text-ink/65 transition hover:border-gold hover:text-ink"
+              >
+                CSV
+              </button>
+            </div>
+          </div>
+
+          <div className="mt-4 flex flex-wrap gap-2">
+            {[
+              { value: "follow_up", label: "Da seguire prima" },
+              { value: "newest", label: "Più recenti" },
+              { value: "longest", label: "Più lunghe" },
+            ].map((item) => (
+              <button
+                key={item.value}
+                type="button"
+                onClick={() => setSort(item.value)}
+                className={`rounded-full border px-4 py-2 text-xs font-semibold uppercase tracking-[0.16em] transition ${
+                  sort === item.value
+                    ? "border-gold bg-gold/12 text-ink"
+                    : "border-stone bg-white/75 text-ink/55 hover:border-gold"
+                }`}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+        </section>
+
+        <div className="grid gap-6 xl:grid-cols-[0.54fr_0.46fr]">
+          <section className="min-w-0 rounded-[2rem] border border-stone/80 bg-white/82 p-4 shadow-card sm:p-5">
+            {loadingCalls ? (
               <div className="space-y-3">
-                {followUpCalls.slice(0, 3).map((call) => (
+                {[0, 1, 2].map((index) => (
+                  <div key={index} className="h-28 animate-pulse rounded-[1.35rem] bg-ivory/70" />
+                ))}
+              </div>
+            ) : calls.length ? (
+              <div className="space-y-3">
+                {calls.map((call) => (
                   <button
                     key={call.id}
                     type="button"
-                    onClick={() => {
-                      void loadTranscript(call.id);
-                    }}
-                    className="w-full rounded-[1.35rem] border border-terracotta/20 bg-terracotta/6 p-4 text-left transition hover:border-terracotta/35"
+                    onClick={() => setSelectedCallId(call.id)}
+                    className={`w-full rounded-[1.4rem] border p-4 text-left transition ${
+                      selectedCallId === call.id
+                        ? "border-gold bg-ivory/70"
+                        : isFollowUpCall(call)
+                          ? "border-terracotta/25 bg-terracotta/6 hover:border-terracotta/40"
+                          : "border-stone/80 bg-white/75 hover:border-gold"
+                    }`}
                   >
-                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                      <div>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
-                          <StatusBadge tone="danger">Da seguire</StatusBadge>
-                          <StatusBadge tone="neutral">{formatCallOutcomeLabel(call.outcome)}</StatusBadge>
+                          <StatusBadge tone={isFollowUpCall(call) ? "danger" : "neutral"}>
+                            {formatCallOutcomeLabel(call.outcome)}
+                          </StatusBadge>
+                          <StatusBadge tone={isFollowUpCall(call) ? "danger" : "good"}>
+                            {getCallOperationalStatusLabel(call)}
+                          </StatusBadge>
                         </div>
                         <p className="mt-3 font-semibold text-ink">{getCallPresentation(call).headline}</p>
-                        <p className="mt-2 text-sm leading-6 text-ink/65">{getCallPresentation(call).nextStep}</p>
+                        <p className="mt-1 line-clamp-2 text-sm leading-6 text-ink/62">
+                          {call.summary || "Nessun riassunto disponibile."}
+                        </p>
                       </div>
-                      <p className="text-xs uppercase tracking-[0.18em] text-ink/45">
-                        {formatDateTime(call.started_at)}
-                      </p>
+                      <div className="shrink-0 text-right text-xs text-ink/42">
+                        <p>{formatDateTime(call.started_at)}</p>
+                        <p className="mt-2">{formatDuration(call.duration_seconds)}</p>
+                      </div>
                     </div>
                   </button>
                 ))}
               </div>
-            </SectionCard>
-          ) : null}
-
-          <SectionCard title="Registro chiamate" kicker={`Ultimi ${days} giorni`}>
-            <div className="mb-5 grid gap-4 sm:grid-cols-2">
-              <label className="grid gap-2 text-sm text-ink/65">
-                Finestra dati
-                <select
-                  className="rounded-2xl border border-stone bg-ivory/80 px-4 py-3 text-ink outline-none transition focus:border-gold"
-                  value={days}
-                  onChange={(event) => setDays(Number(event.target.value))}
-                >
-                  <option value={7}>Ultimi 7 giorni</option>
-                  <option value={14}>Ultimi 14 giorni</option>
-                  <option value={30}>Ultimi 30 giorni</option>
-                </select>
-              </label>
-
-              <label className="grid gap-2 text-sm text-ink/65">
-                Esito
-                <select
-                  className="rounded-2xl border border-stone bg-ivory/80 px-4 py-3 text-ink outline-none transition focus:border-gold"
-                  value={outcome}
-                  onChange={(event) => setOutcome(event.target.value)}
-                >
-                  {callOutcomes.map((item) => (
-                    <option key={item.value || "all"} value={item.value}>
-                      {item.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
-            <div className="mb-5 flex justify-stretch sm:justify-end">
-              <button
-                type="button"
-                onClick={() => void exportCalls()}
-                className="w-full rounded-full border border-stone px-3 py-2 text-xs font-semibold uppercase tracking-[0.22em] text-ink/70 sm:w-auto"
-              >
-                Export CSV
-              </button>
-            </div>
-
-            {loadingCalls ? (
-              <div className="space-y-3">
-                {Array.from({ length: 3 }).map((_, index) => (
-                  <div key={index} className="h-28 animate-pulse rounded-[1.45rem] bg-white/70" />
-                ))}
-              </div>
-            ) : visibleCalls.length ? (
-              <div className="space-y-3">
-                {visibleCalls.map((call) => (
-                  <CallRow
-                    key={call.id}
-                    call={call}
-                    isSelected={selectedCallId === call.id}
-                    onOpen={() => {
-                      void loadTranscript(call.id);
-                    }}
-                  />
-                ))}
-                {archivedCalls.length ? (
-                  <details className="rounded-[1.35rem] border border-dashed border-stone bg-ivory/35 p-4">
-                    <summary className="cursor-pointer text-sm font-semibold text-ink">
-                      Mostra archivio tecnico ({archivedCalls.length})
-                    </summary>
-                    <div className="mt-4 space-y-3">
-                      {archivedCalls.map((call) => (
-                        <CallRow
-                          key={call.id}
-                          call={call}
-                          isSelected={selectedCallId === call.id}
-                          onOpen={() => {
-                            void loadTranscript(call.id);
-                          }}
-                          compact
-                        />
-                      ))}
-                    </div>
-                  </details>
-                ) : null}
-              </div>
             ) : (
-              <p className="rounded-[1.45rem] border border-dashed border-stone px-4 py-10 text-sm text-ink/55">
-                Nessuna chiamata trovata con i filtri correnti.
+              <p className="rounded-[1.4rem] border border-dashed border-stone px-4 py-10 text-center text-sm text-ink/50">
+                Nessuna chiamata nel periodo selezionato.
               </p>
             )}
-          </SectionCard>
+          </section>
 
-          <SectionCard title="Volume per fascia oraria" kicker="Heatmap">
-            {trends ? (
-              <Heatmap cells={trends.heatmap} />
-            ) : (
-              <div className="h-64 animate-pulse rounded-[1.6rem] bg-ivory/70" />
-            )}
-        </SectionCard>
-      </div>
-
-        <div className="min-w-0 space-y-6 xl:sticky xl:top-5 xl:self-start">
-          <SectionCard title="Dettaglio chiamata" kicker="Su richiesta">
+          <section className="rounded-[2rem] border border-stone/80 bg-[linear-gradient(180deg,rgba(255,252,246,0.96),rgba(245,238,228,0.92))] p-5 shadow-card sm:p-6">
             {error ? (
-              <p className="rounded-[1.45rem] border border-terracotta/30 bg-terracotta/10 px-4 py-4 text-sm text-terracotta">
+              <p className="rounded-[1.3rem] border border-terracotta/30 bg-terracotta/10 px-4 py-3 text-sm text-terracotta">
                 {error}
               </p>
             ) : null}
+
             {loadingTranscript ? (
-              <div className="space-y-3">
-                <div className="h-24 animate-pulse rounded-[1.45rem] bg-ivory/70" />
-                <div className="h-64 animate-pulse rounded-[1.45rem] bg-white/70" />
-              </div>
+              <div className="h-64 animate-pulse rounded-[1.6rem] bg-white/70" />
             ) : transcript && selectedCall ? (
-              <div className="space-y-4">
-                <div className="rounded-[1.45rem] border border-stone/80 bg-ivory/70 p-4">
-                  <div className="flex flex-wrap gap-2">
-                    <span className="rounded-full border border-stone/80 bg-white/80 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-ink/65">
-                      {formatCallOutcomeLabel(selectedCall.outcome)}
-                    </span>
-                    <span
-                      className={`rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] ${
-                        getCallPresentation(selectedCall).needsAttention
-                          ? "bg-terracotta/10 text-terracotta"
-                          : "bg-olive/10 text-olive"
-                      }`}
-                    >
-                      {getCallOperationalStatusLabel(selectedCall)}
-                    </span>
-                  </div>
-                  <p className="mt-3 font-semibold text-ink">{getCallPresentation(selectedCall).headline}</p>
-                  <p className="mt-2 text-sm leading-7 text-ink/70">{getCallPresentation(selectedCall).nextStep}</p>
-                  <dl className="mt-4 grid gap-3 text-sm text-ink/65 sm:grid-cols-2">
-                    <div>
-                      <dt className="text-[11px] font-semibold uppercase tracking-[0.18em] text-ink/45">Quando</dt>
-                      <dd className="mt-1">{formatDateTime(selectedCall.started_at)}</dd>
-                    </div>
-                    <div>
-                      <dt className="text-[11px] font-semibold uppercase tracking-[0.18em] text-ink/45">Durata</dt>
-                      <dd className="mt-1">
-                        {Math.floor(selectedCall.duration_seconds / 60)}:
-                        {String(selectedCall.duration_seconds % 60).padStart(2, "0")}
-                      </dd>
-                    </div>
-                  </dl>
+              <div className="space-y-5">
+                <div className="flex flex-wrap gap-2">
+                  <StatusBadge tone={selectedCall.call_status === "failed" ? "danger" : "neutral"}>
+                    {formatCallOutcomeLabel(selectedCall.outcome)}
+                  </StatusBadge>
+                  <StatusBadge tone={isFollowUpCall(selectedCall) ? "danger" : "good"}>
+                    {getCallOperationalStatusLabel(selectedCall)}
+                  </StatusBadge>
                 </div>
-                <div className="rounded-[1.45rem] border border-stone/80 bg-white/80 p-4">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-terracotta/70">
-                    Riassunto
-                  </p>
-                  <p className="mt-3 text-sm leading-7 text-ink/70">{transcript.summary}</p>
+
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-ink/45">Riassunto</p>
+                  <p className="mt-3 text-base leading-7 text-ink/74">{transcript.summary}</p>
                 </div>
-                <details className="rounded-[1.45rem] border border-stone/80 bg-white/80 p-4">
-                  <summary className="cursor-pointer text-sm font-semibold text-ink">
-                    Mostra trascrizione completa
-                  </summary>
-                  <div className="mt-4 space-y-3">
-                    {transcript.metadata.status ? (
-                      <div className="rounded-[1.2rem] border border-stone/70 bg-ivory/60 px-4 py-3 text-xs uppercase tracking-[0.24em] text-ink/45">
-                        Fonte {transcript.source} · stato conversazione {String(transcript.metadata.status)}
-                      </div>
-                    ) : null}
-                    <pre className="overflow-x-auto whitespace-pre-wrap rounded-[1.2rem] border border-stone/70 bg-ivory/50 p-4 text-sm leading-7 text-ink/72">
-                      {transcript.transcript ?? "Nessuna trascrizione disponibile."}
-                    </pre>
-                  </div>
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <MetaBlock label="Quando" value={formatDateTime(selectedCall.started_at)} />
+                  <MetaBlock label="Durata" value={formatDuration(selectedCall.duration_seconds)} />
+                  <MetaBlock label="Esito tecnico" value={formatCallStatusLabel(selectedCall.call_status)} />
+                  <MetaBlock label="Booking collegata" value={selectedCall.booking_id ?? "Nessuna"} />
+                </div>
+
+                <div className="rounded-[1.45rem] border border-stone/80 bg-white/82 p-4">
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-ink/45">Prossimo passo</p>
+                  <p className="mt-2 text-sm leading-6 text-ink/68">{getCallPresentation(selectedCall).nextStep}</p>
+                </div>
+
+                <details className="rounded-[1.45rem] border border-stone/80 bg-white/82 p-4">
+                  <summary className="cursor-pointer text-sm font-semibold text-ink">Trascrizione completa</summary>
+                  <pre className="mt-4 whitespace-pre-wrap text-sm leading-7 text-ink/66">
+                    {transcript.transcript ?? "Nessuna trascrizione disponibile."}
+                  </pre>
                 </details>
               </div>
             ) : (
-              <p className="rounded-[1.45rem] border border-dashed border-stone px-4 py-10 text-sm text-ink/55">
-                Seleziona una chiamata dalla lista per vedere solo il riassunto operativo e, se ti serve,
-                aprire la trascrizione completa.
-              </p>
+              <div className="rounded-[1.45rem] border border-dashed border-stone px-4 py-12 text-center text-sm text-ink/50">
+                Seleziona una chiamata per leggere riassunto e transcript.
+              </div>
             )}
-          </SectionCard>
-
-          <SectionCard title="Da osservare" kicker="Supervisione">
-            <div className="space-y-3">
-              {trends?.escalations.length ? (
-                trends.escalations.map((item) => (
-                  <article
-                    key={item.outcome}
-                    className="rounded-[1.35rem] border border-stone/80 bg-ivory/70 p-4"
-                  >
-                    <p className="font-semibold text-ink">{formatCallOutcomeLabel(item.outcome as CallLog["outcome"])}</p>
-                    <p className="mt-2 text-sm text-ink/60">{item.total} chiamate nel periodo.</p>
-                  </article>
-                ))
-              ) : (
-                <p className="rounded-[1.35rem] border border-dashed border-stone px-4 py-8 text-sm text-ink/55">
-                  Nessun segnale di escalation nel periodo selezionato.
-                </p>
-              )}
-            </div>
-          </SectionCard>
+          </section>
         </div>
-      </div>
       </div>
     </DashboardShell>
   );
 }
 
-function CallRow({
-  call,
-  isSelected,
-  onOpen,
-  compact = false,
+function StatCard({
+  label,
+  value,
+  detail,
+  tone = "default",
 }: {
-  call: CallLog;
-  isSelected: boolean;
-  onOpen: () => void;
-  compact?: boolean;
+  label: string;
+  value: string;
+  detail: string;
+  tone?: "default" | "calm" | "alert";
 }) {
-  const presentation = getCallPresentation(call);
+  const toneStyles =
+    tone === "alert"
+      ? "border-terracotta/25 bg-terracotta/8"
+      : tone === "calm"
+        ? "border-olive/25 bg-olive/8"
+        : "border-stone/80 bg-white/80";
 
   return (
-    <button
-      type="button"
-      onClick={onOpen}
-      className={`w-full rounded-[1.45rem] border p-4 text-left transition ${
-        isSelected
-          ? "border-gold bg-ivory/80 shadow-[0_24px_60px_rgba(52,44,37,0.08)]"
-          : "border-stone/80 bg-white/80 hover:border-gold"
-      }`}
-    >
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <span
-              className={`inline-block h-2 w-2 rounded-full ${
-                presentation.needsAttention ? "bg-terracotta" : call.call_status === "successful" ? "bg-olive" : "bg-stone"
-              }`}
-            />
-            <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-terracotta/70">
-              {presentation.label}
-            </span>
-            {presentation.needsAttention ? (
-              <span className="rounded-full bg-terracotta/10 px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-terracotta">
-                attenzione
-              </span>
-            ) : null}
-          </div>
-          <p className="mt-3 font-semibold text-ink">{presentation.headline}</p>
-          {!compact ? (
-            <p className="mt-2 text-sm leading-6 text-ink/65">{presentation.preview}</p>
-          ) : (
-            <p className="mt-2 text-sm leading-6 text-ink/55">
-              {formatCallStatusLabel(call.call_status)} · dettaglio archiviato
-            </p>
-          )}
-        </div>
-        <div className="text-xs uppercase tracking-[0.22em] text-ink/40 sm:text-right">
-          <p>{formatDateTime(call.started_at)}</p>
-          <p className="mt-2">
-            {Math.floor(call.duration_seconds / 60)}:{String(call.duration_seconds % 60).padStart(2, "0")}
-          </p>
-          <p className={`mt-1 ${presentation.needsAttention ? "text-terracotta" : ""}`}>
-            {getCallOperationalStatusLabel(call)}
-          </p>
-        </div>
-      </div>
-    </button>
+    <article className={`rounded-[1.5rem] border p-5 shadow-card ${toneStyles}`}>
+      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-ink/45">{label}</p>
+      <p className="mt-3 font-display text-4xl text-ink">{value}</p>
+      <p className="mt-2 text-sm leading-6 text-ink/60">{detail}</p>
+    </article>
   );
+}
+
+function MetaBlock({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-[1.25rem] border border-stone/75 bg-white/82 p-4">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-ink/42">{label}</p>
+      <p className="mt-2 text-sm text-ink/72">{value}</p>
+    </div>
+  );
+}
+
+function formatDuration(durationSeconds: number) {
+  return `${Math.floor(durationSeconds / 60)}:${String(durationSeconds % 60).padStart(2, "0")}`;
 }

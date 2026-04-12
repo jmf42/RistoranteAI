@@ -1,99 +1,45 @@
 # App Interactions Visual Flow
 
-This page is the visual version for team sharing.
-
-## Main Flowchart
+Last updated: `2026-04-10`
 
 ```mermaid
 flowchart LR
-    caller["Customer calls the restaurant"] --> twilio["Twilio receives the call"]
+    caller["Customer calls the restaurant"] --> twilio["Twilio phone number"]
+    twilio --> inbound["POST /api/twilio/inbound"]
 
     subgraph backend["Backend"]
-        inbound["1. Inbound route receives the call"]
-        match["2. Find the right restaurant"]
-        context["3. Build AI context:
-restaurant name
-hours
-closures
-rules
-caller phone
-greeting"]
-        tools["5. Booking tools:
-check
-create
-find
-change
-cancel"]
-        webhook["6. Save call summary and transcript"]
+        inbound --> match["Resolve restaurant"]
+        match --> bridge["Return TwiML stream + open realtime bridge"]
+        bridge --> tools["Server-side booking tools"]
+        bridge --> calls["Persist call log + transcript preview"]
+    end
+
+    subgraph openai["OpenAI Realtime"]
+        model["Live voice model"]
     end
 
     subgraph db["Database"]
-        restaurants["Restaurant setup"]
+        restaurants["Restaurants"]
         bookings["Bookings"]
-        customers["Customers"]
-        history["Booking history"]
-        calls["Call logs"]
+        events["Booking events"]
+        calllogs["Call logs"]
     end
 
-    subgraph el["ElevenLabs"]
-        voice["4. AI speaks with caller"]
-        personal["Gets context at call start"]
-        summary["Sends after-call summary"]
-    end
-
-    subgraph dash["Dashboard"]
-        home["Home"]
-        bookingsui["Bookings"]
-        callsui["Calls"]
-        capacity["Capacity"]
-        settings["Settings"]
-    end
-
-    twilio --> inbound
-    inbound --> match
-    match --> restaurants
-    restaurants --> context
-    context --> voice
-    voice --> personal
-    personal --> context
-    voice --> tools
+    bridge --> model
+    model --> bridge
     tools --> bookings
-    tools --> customers
-    tools --> history
-    summary --> webhook
-    webhook --> calls
-
-    bookings --> bookingsui
-    history --> bookingsui
-    calls --> callsui
-    bookings --> capacity
-    restaurants --> settings
-    calls --> home
-    bookings --> home
-
-    voice -. "after call" .-> summary
-    settings -. "staff updates rules and setup" .-> restaurants
+    tools --> events
+    match --> restaurants
+    calls --> calllogs
 ```
 
-## One-Line Reading Guide
+## Plain-English Summary
 
-- Twilio starts the call.
-- The backend identifies the restaurant and prepares the AI.
-- ElevenLabs runs the conversation.
-- During the call, ElevenLabs asks the backend to do real booking work.
-- The backend reads and writes the database.
-- The dashboard shows the same data the AI used.
-
-## Current Live Caveat
-
-```mermaid
-flowchart TD
-    live["Live staging today"] --> ok["Call can start and booking tools can work"]
-    live --> issue["After-call webhook is currently disabled"]
-    issue --> why["Reason:
-webhook signing secret does not match"]
-    issue --> effect["Effect:
-call summaries are not being saved through the normal webhook path"]
-    effect --> fallback["Current workaround:
-Calls page re-pulls recent conversations from ElevenLabs when opened"]
-```
+- Twilio handles the phone number.
+- The backend decides which restaurant the call belongs to.
+- The backend streams the audio to OpenAI Realtime.
+- OpenAI talks to the caller.
+- Real booking work still happens in backend tools and the database.
+- Transfer to the restaurant is a controlled fallback, not the default answer to unclear booking details.
+- The dashboard reads the same booking and call data the phone agent produced.
+- The studio gives operators a safe place to preview, test, and regression-check the live agent config.

@@ -2,6 +2,7 @@ from app.schemas.analytics import AnalyticsOverview, CapacitySnapshot, TrendBund
 from app.schemas.auth import LoginRequest, SessionResponse, SessionUser
 from app.schemas.booking import BookingCreate, BookingRead, BookingUpdate
 from app.schemas.calls import CallLogRead, TranscriptResponse
+from app.schemas.owner import OwnerAgendaResponse
 from app.schemas.restaurant import RestaurantCreate, RestaurantRead, RestaurantSummary, RestaurantUpdate
 from app.schemas.tools import (
     CancelBookingRequest,
@@ -15,8 +16,6 @@ from app.schemas.tools import (
     ModifyBookingRequest,
     ModifyBookingResponse,
     SlotOption,
-    TwilioPersonalizationRequest,
-    TwilioPersonalizationResponse,
 )
 
 __all__ = [
@@ -37,6 +36,7 @@ __all__ = [
     "LoginRequest",
     "ModifyBookingRequest",
     "ModifyBookingResponse",
+    "OwnerAgendaResponse",
     "RestaurantCreate",
     "RestaurantRead",
     "RestaurantSummary",
@@ -46,6 +46,4 @@ __all__ = [
     "SlotOption",
     "TranscriptResponse",
     "TrendBundle",
-    "TwilioPersonalizationRequest",
-    "TwilioPersonalizationResponse",
 ]

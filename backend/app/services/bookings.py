@@ -13,7 +13,7 @@ from app.schemas.common import BookingStatus
 from app.services.availability import ACTIVE_STATUSES, check_availability
 
 # ---------------------------------------------------------------------------
-# Italian reason messages — returned to the ElevenLabs agent so it can
+# Italian reason messages — returned to the live voice agent so it can
 # relay them naturally without translating English technical strings.
 # ---------------------------------------------------------------------------
 _REASON_IT = {

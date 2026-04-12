@@ -9,9 +9,10 @@ def test_auth_cookie_uses_samesite_none_when_secure() -> None:
     settings = Settings(
         app_env="production",
         jwt_secret="x" * 48,
-        elevenlabs_tool_secret="y" * 48,
+        tool_secret="y" * 48,
+        openai_api_key="sk-test-openai",
+        public_base_url="https://api.example.com",
         pii_encryption_key="p" * 44,
-        elevenlabs_webhook_secret="z" * 48,
         session_cookie_secure=True,
         allowed_origins="https://dashboard.example.com",
     )
@@ -28,9 +29,10 @@ def test_clear_auth_cookie_matches_cross_site_attributes() -> None:
     settings = Settings(
         app_env="production",
         jwt_secret="x" * 48,
-        elevenlabs_tool_secret="y" * 48,
+        tool_secret="y" * 48,
+        openai_api_key="sk-test-openai",
+        public_base_url="https://api.example.com",
         pii_encryption_key="p" * 44,
-        elevenlabs_webhook_secret="z" * 48,
         session_cookie_secure=True,
         allowed_origins="https://dashboard.example.com",
     )

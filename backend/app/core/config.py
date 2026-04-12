@@ -6,7 +6,7 @@ from typing import Annotated
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from dotenv import load_dotenv
-from pydantic import field_validator, model_validator
+from pydantic import AliasChoices, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -14,7 +14,7 @@ load_dotenv(REPO_ROOT / ".env")
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(extra="ignore")
+    model_config = SettingsConfigDict(extra="ignore", populate_by_name=True)
 
     app_name: str = "Ristorante AI API"
     app_env: str = "development"
@@ -35,10 +35,20 @@ class Settings(BaseSettings):
     sentry_traces_sample_rate: float = 0.0
 
     tool_secret_header_name: str = "X-Ristorante-Tool-Secret"
-    elevenlabs_tool_secret: str = "local-tool-secret"
-    elevenlabs_personalization_secret: str | None = None
-    elevenlabs_webhook_secret: str | None = None
-    elevenlabs_api_key: str | None = None
+    tool_secret: str = Field(
+        default="local-tool-secret",
+        validation_alias=AliasChoices("TOOL_SECRET", "ELEVENLABS_TOOL_SECRET"),
+    )
+    openai_api_key: str | None = Field(default=None, validation_alias="OPENAI_API_KEY")
+    openai_realtime_model: str = Field(default="gpt-realtime-1.5", validation_alias="OPENAI_REALTIME_MODEL")
+    openai_realtime_voice: str = Field(default="cedar", validation_alias="OPENAI_REALTIME_VOICE")
+    openai_realtime_base_url: str = Field(
+        default="wss://api.openai.com/v1/realtime?model=gpt-realtime-1.5",
+        validation_alias="OPENAI_REALTIME_BASE_URL",
+    )
+    public_base_url: str | None = Field(default=None, validation_alias="PUBLIC_BASE_URL")
+    twilio_account_sid: str | None = Field(default=None, validation_alias="TWILIO_ACCOUNT_SID")
+    twilio_auth_token: str | None = Field(default=None, validation_alias="TWILIO_AUTH_TOKEN")
 
     auto_create_schema: bool = True
     seed_demo: bool | None = None
@@ -100,10 +110,10 @@ class Settings(BaseSettings):
                     "CRITICAL: JWT_SECRET is still the default placeholder. "
                     "Set a strong, unique secret via the JWT_SECRET environment variable before running in production."
                 )
-            if self.elevenlabs_tool_secret == "local-tool-secret":
+            if self.tool_secret == "local-tool-secret":
                 raise ValueError(
-                    "CRITICAL: ELEVENLABS_TOOL_SECRET is still the default placeholder. "
-                    "Set a strong secret via the ELEVENLABS_TOOL_SECRET environment variable."
+                    "CRITICAL: TOOL_SECRET is still the default placeholder. "
+                    "Set a strong secret via the TOOL_SECRET environment variable."
                 )
             if not self.session_cookie_secure:
                 raise ValueError(
@@ -114,20 +124,20 @@ class Settings(BaseSettings):
                     "CRITICAL: PII_ENCRYPTION_KEY must be set in production. "
                     "Do not fall back to JWT_SECRET for PII encryption."
                 )
-            if not self.elevenlabs_webhook_secret:
+            if not self.openai_api_key:
                 raise ValueError(
-                    "CRITICAL: ELEVENLABS_WEBHOOK_SECRET must be set in production "
-                    "to validate inbound webhook signatures."
+                    "CRITICAL: OPENAI_API_KEY must be set in production."
                 )
             if not self.allowed_origins:
                 raise ValueError("CRITICAL: ALLOWED_ORIGINS must list the deployed dashboard origins.")
             if "*" in self.allowed_origins:
                 raise ValueError("CRITICAL: ALLOWED_ORIGINS cannot contain '*' in production.")
+            if not self.public_base_url:
+                raise ValueError(
+                    "CRITICAL: PUBLIC_BASE_URL must be set in production "
+                    "so Twilio can open the media stream and callbacks on the correct public domain."
+                )
         return self
-
-    @property
-    def personalization_secret(self) -> str:
-        return self.elevenlabs_personalization_secret or self.elevenlabs_tool_secret
 
 
 settings = Settings()

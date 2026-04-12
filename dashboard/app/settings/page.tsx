@@ -1,34 +1,23 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Bot, PhoneCall, PhoneForwarded, Store } from "lucide-react";
 
 import { DashboardShell } from "@/components/dashboard-shell";
-import { MetricPanel } from "@/components/metric-panel";
 import { SectionCard } from "@/components/section-card";
 import { StatusBadge } from "@/components/status-badge";
 import { useWorkspace } from "@/components/workspace-provider";
 import { ApiError, apiFetch } from "@/lib/api";
 import { Restaurant } from "@/lib/types";
 
-const profileFields: Array<{
-  field: "name" | "slug" | "address" | "timezone";
-  label: string;
-}> = [
-  { field: "name", label: "Nome ristorante" },
-  { field: "slug", label: "Slug" },
-  { field: "address", label: "Indirizzo" },
-  { field: "timezone", label: "Timezone" }
-];
-
-const telephonyFields: Array<{
-  field: "twilio_phone" | "elevenlabs_agent_id" | "escalation_phone";
-  label: string;
-}> = [
-  { field: "twilio_phone", label: "Numero Twilio" },
-  { field: "elevenlabs_agent_id", label: "Agent id ElevenLabs" },
-  { field: "escalation_phone", label: "Numero trasferimento umano" }
-];
+const DAY_LABELS: Record<string, string> = {
+  monday: "Lunedì",
+  tuesday: "Martedì",
+  wednesday: "Mercoledì",
+  thursday: "Giovedì",
+  friday: "Venerdì",
+  saturday: "Sabato",
+  sunday: "Domenica",
+};
 
 export default function SettingsPage() {
   const { restaurant, refreshWorkspace } = useWorkspace();
@@ -44,75 +33,34 @@ export default function SettingsPage() {
   }, [restaurant]);
 
   const isDirty = useMemo(() => {
-    if (!restaurant || !form) {
-      return false;
-    }
+    if (!restaurant || !form) return false;
     return JSON.stringify(form) !== JSON.stringify(restaurant);
   }, [form, restaurant]);
 
   const greetingPreview = useMemo(() => {
-    if (!form) {
-      return "";
-    }
-    const localNow = new Date();
+    if (!form) return "";
     const hour = Number(
       new Intl.DateTimeFormat("en-GB", {
         hour: "2-digit",
         hour12: false,
         timeZone: form.timezone || "Europe/Rome",
-      }).format(localNow)
+      }).format(new Date())
     );
     const saluto = hour < 14 ? "Buongiorno" : "Buonasera";
     const custom = form.custom_greeting?.trim();
-    return custom && custom.length > 0
-      ? custom.replaceAll("{saluto}", saluto)
-      : `${saluto}, ${form.name}. Come posso aiutarla?`;
-  }, [form]);
-
-  const readinessChecks = useMemo(() => {
-    if (!form) {
-      return [];
-    }
-
-    return [
-      {
-        label: "Profilo ristorante completo",
-        ready: Boolean(form.name && form.address && form.timezone),
-        icon: <Store size={18} />,
-      },
-      {
-        label: "Linea Twilio collegata",
-        ready: Boolean(form.twilio_phone),
-        icon: <PhoneCall size={18} />,
-      },
-      {
-        label: "Agente ElevenLabs collegato",
-        ready: Boolean(form.elevenlabs_agent_id),
-        icon: <Bot size={18} />,
-      },
-      {
-        label: "Numero umano di backup presente",
-        ready: Boolean(form.escalation_phone),
-        icon: <PhoneForwarded size={18} />,
-      },
-    ] as const;
+    return custom ? custom.replaceAll("{saluto}", saluto) : `${saluto}, ${form.name}. Come posso aiutarla?`;
   }, [form]);
 
   if (!form || !restaurant) {
     return (
-      <DashboardShell
-        title="Impostazioni"
-        subtitle="Carico la configurazione del ristorante."
-      >
+      <DashboardShell title="Impostazioni" subtitle="Carico la configurazione.">
         <div className="h-72 animate-pulse rounded-[2rem] bg-white/70" />
       </DashboardShell>
     );
   }
 
   async function save() {
-    if (!restaurant || !form) {
-      return;
-    }
+    if (!restaurant || !form) return;
     setSaving(true);
     setMessage(null);
     try {
@@ -120,7 +68,7 @@ export default function SettingsPage() {
         slug: form.slug,
         name: form.name,
         twilio_phone: form.twilio_phone || null,
-        elevenlabs_agent_id: form.elevenlabs_agent_id || null,
+        voice_provider: form.voice_provider,
         timezone: form.timezone,
         address: form.address,
         opening_hours: form.opening_hours,
@@ -135,406 +83,343 @@ export default function SettingsPage() {
       };
       const response = await apiFetch<Restaurant>(`/api/restaurants/${restaurant.id}`, {
         method: "PATCH",
-        body: JSON.stringify(payload)
+        body: JSON.stringify(payload),
       });
       setMessageTone("success");
       setMessage(response.sync_status?.message ?? "Configurazione aggiornata.");
       await refreshWorkspace();
     } catch (error) {
       setMessageTone("error");
-      setMessage(error instanceof ApiError ? error.message : "Impossibile salvare la configurazione.");
+      setMessage(error instanceof ApiError ? error.message : "Impossibile salvare.");
     } finally {
       setSaving(false);
     }
   }
 
+  function updateField<K extends keyof Restaurant>(field: K, value: Restaurant[K]) {
+    setForm((cur) => (cur ? { ...cur, [field]: value } : cur));
+  }
+
   return (
     <DashboardShell
-      title="Impostazioni ristorante"
-      subtitle="Configura identità, numeri telefonici e cervello AI del ristorante senza toccare codice."
+      title="Impostazioni"
+      subtitle="Profilo, turni, regole e personalizzazione agente."
     >
       <div className="space-y-6">
-        <div className="grid gap-4 lg:grid-cols-4">
-          {readinessChecks.map((item) => (
-            <MetricPanel
-              key={item.label}
-              label={item.label}
-              value={item.ready ? "OK" : "Manca"}
-              detail={item.ready ? "Configurazione presente e pronta all’uso." : "Completa questo blocco per evitare buchi operativi."}
-              tone={item.ready ? "olive" : "terracotta"}
-              badge={{ label: item.ready ? "Pronto" : "Da completare", tone: item.ready ? "good" : "warn" }}
-              icon={item.icon}
-            />
-          ))}
-        </div>
-
+        {/* Save bar */}
         {isDirty || message ? (
-          <div className="sticky top-3 z-30 rounded-[1.5rem] border border-stone/80 bg-white/92 px-4 py-3 shadow-card backdrop-blur">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex flex-wrap items-center gap-2">
-                <StatusBadge tone={isDirty ? "warn" : "good"}>
-                  {isDirty ? "Modifiche non salvate" : "Configurazione sincronizzata"}
+          <div className="sticky top-3 z-30 flex flex-col gap-3 rounded-[1.5rem] border border-stone/80 bg-white/92 px-4 py-3 shadow-card backdrop-blur sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-wrap items-center gap-2">
+              <StatusBadge tone={isDirty ? "warn" : "good"}>
+                {isDirty ? "Modifiche non salvate" : "Salvato"}
+              </StatusBadge>
+              {message ? (
+                <StatusBadge tone={messageTone === "error" ? "danger" : "good"}>
+                  {message}
                 </StatusBadge>
-                {message ? (
-                  <StatusBadge tone={messageTone === "error" ? "danger" : "good"}>
-                    {message}
-                  </StatusBadge>
-                ) : null}
-              </div>
-              <button
-                type="button"
-                onClick={() => void save()}
-                disabled={saving || !isDirty}
-                className="rounded-full bg-ink px-4 py-3 text-sm font-semibold uppercase tracking-[0.22em] text-ivory transition hover:bg-night disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {saving ? "Salvo..." : "Salva configurazione"}
-              </button>
+              ) : null}
             </div>
+            <button
+              type="button"
+              onClick={() => void save()}
+              disabled={saving || !isDirty}
+              className="rounded-full bg-ink px-4 py-3 text-sm font-semibold uppercase tracking-[0.22em] text-ivory transition hover:bg-night disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {saving ? "Salvo..." : "Salva"}
+            </button>
           </div>
         ) : null}
 
-        <div className="grid gap-6 xl:grid-cols-[0.55fr_0.45fr]">
-        <SectionCard title="Profilo ristorante" kicker="Core profile">
-          <div className="grid gap-4">
-            {profileFields.map(({ field, label }) => (
-              <label key={field} className="grid gap-2 text-sm text-ink/65">
-                {label}
-                <input
-                  className="rounded-2xl border border-stone bg-ivory/80 px-4 py-3 text-ink outline-none transition focus:border-gold"
-                  value={form[field] ?? ""}
-                  onChange={(event) =>
-                    setForm((current) =>
-                      current
-                        ? {
-                            ...current,
-                            [field]: event.target.value
-                          }
-                        : current
-                    )
-                  }
-                />
-              </label>
-            ))}
-
-            <div className="mt-2 rounded-[1.5rem] border border-stone/80 bg-ivory/60 p-4">
-              <p className="text-xs uppercase tracking-[0.24em] text-ink/45">Numeri e routing</p>
-              <div className="mt-4 grid gap-4">
-                {telephonyFields.map(({ field, label }) => (
-                  <label key={field} className="grid gap-2 text-sm text-ink/65">
-                    {label}
-                    <input
-                      className="rounded-2xl border border-stone bg-white/80 px-4 py-3 text-ink outline-none transition focus:border-gold"
-                      value={form[field] ?? ""}
-                      onChange={(event) =>
-                        setForm((current) =>
-                          current
-                            ? {
-                                ...current,
-                                [field]: event.target.value
-                              }
-                            : current
-                        )
-                      }
-                    />
-                  </label>
-                ))}
-              </div>
-            </div>
-
-            <div className="grid gap-4 sm:grid-cols-2">
-              {Object.entries(form.opening_hours).map(([key, value]) => (
-                <label key={key} className="grid gap-2 text-sm text-ink/65">
-                  Orario {key}
-                  <input
-                    className="rounded-2xl border border-stone bg-ivory/80 px-4 py-3 text-ink outline-none transition focus:border-gold"
-                    placeholder="HH:MM-HH:MM"
-                    pattern="\d{2}:\d{2}-\d{2}:\d{2}"
-                    title="Formato: HH:MM-HH:MM (es. 12:00-15:00)"
+        <div className="grid gap-6 xl:grid-cols-2">
+          {/* Profile */}
+          <SectionCard title="Profilo" kicker="Identità ristorante">
+            <div className="grid gap-4">
+              <Field label="Nome" value={form.name} onChange={(v) => updateField("name", v)} />
+              <Field label="Slug" value={form.slug} onChange={(v) => updateField("slug", v)} />
+              <Field label="Indirizzo" value={form.address} onChange={(v) => updateField("address", v)} />
+              <Field label="Timezone" value={form.timezone} onChange={(v) => updateField("timezone", v)} />
+              <div className="grid gap-4 sm:grid-cols-2">
+                {Object.entries(form.opening_hours).map(([key, value]) => (
+                  <Field
+                    key={key}
+                    label={DAY_LABELS[key] ?? key}
                     value={value}
-                    onChange={(event) =>
-                      setForm((current) =>
-                        current
-                          ? {
-                              ...current,
-                              opening_hours: {
-                                ...current.opening_hours,
-                                [key]: event.target.value
-                              }
-                            }
-                          : current
-                      )
+                    placeholder="HH:MM-HH:MM"
+                    onChange={(v) =>
+                      updateField("opening_hours", { ...form.opening_hours, [key]: v })
                     }
                   />
-                </label>
-              ))}
-            </div>
-          </div>
-        </SectionCard>
-
-        <SectionCard title="Cervello AI e telefono" kicker="Owner configurable">
-          <div className="space-y-5">
-            <div className="rounded-[1.5rem] border border-stone/80 bg-ivory/60 p-4">
-              <p className="text-xs uppercase tracking-[0.24em] text-ink/45">Personalizzazione agente</p>
-              <div className="mt-4 grid gap-4">
-                <label className="grid gap-2 text-sm text-ink/65">
-                  Greeting iniziale personalizzato
-                  <textarea
-                    rows={3}
-                    className="rounded-2xl border border-stone bg-white/80 px-4 py-3 text-ink outline-none transition focus:border-gold"
-                    placeholder="{saluto}, Trattoria Madonnina. Come posso aiutarla?"
-                    value={form.custom_greeting ?? ""}
-                    onChange={(event) =>
-                      setForm((current) =>
-                        current
-                          ? {
-                              ...current,
-                              custom_greeting: event.target.value || null
-                            }
-                          : current
-                      )
-                    }
-                  />
-                </label>
-
-                <label className="grid gap-2 text-sm text-ink/65">
-                  Note stile agente
-                  <textarea
-                    rows={4}
-                    className="rounded-2xl border border-stone bg-white/80 px-4 py-3 text-ink outline-none transition focus:border-gold"
-                    placeholder="Warm, concise, premium Italian hospitality tone."
-                    value={form.agent_style_notes ?? ""}
-                    onChange={(event) =>
-                      setForm((current) =>
-                        current
-                          ? {
-                              ...current,
-                              agent_style_notes: event.target.value || null
-                            }
-                          : current
-                      )
-                    }
-                  />
-                </label>
-              </div>
-            </div>
-
-            <div className="rounded-[1.5rem] border border-stone/80 bg-white/80 p-4">
-              <div className="flex flex-wrap items-center gap-2">
-                <StatusBadge tone="neutral">Anteprima greeting</StatusBadge>
-                <StatusBadge tone="good">{form.timezone}</StatusBadge>
-              </div>
-              <p className="mt-4 rounded-[1.2rem] border border-stone/70 bg-ivory/60 px-4 py-4 font-display text-2xl leading-tight text-ink">
-                {greetingPreview}
-              </p>
-              <p className="mt-3 text-sm leading-7 text-ink/65">
-                Usa <strong>{`{saluto}`}</strong> nel greeting per inserire automaticamente &ldquo;Buongiorno&rdquo; o &ldquo;Buonasera&rdquo; in base all&apos;orario. Se lasci il campo vuoto, il sistema genera il saluto automaticamente. Le note stile vengono iniettate nel prompt di sistema dell&apos;agente ElevenLabs per calibrare tono e comportamento.
-              </p>
-            </div>
-          </div>
-        </SectionCard>
-
-        <div className="xl:col-span-2">
-          <SectionCard title="Turni e regole" kicker="Booking engine">
-            <div className="space-y-5">
-              <div className="grid gap-4">
-                {form.turni.map((turno, index) => (
-                  <div
-                    key={`${turno.name}-${index}`}
-                    className="relative grid gap-3 rounded-[1.5rem] border border-stone/80 bg-ivory/70 p-4 pt-10 sm:grid-cols-2 sm:pt-4 xl:grid-cols-4"
-                  >
-                    {form.turni.length > 1 ? (
-                      <button
-                        type="button"
-                        title="Rimuovi turno"
-                        onClick={() =>
-                          setForm((current) =>
-                            current
-                              ? { ...current, turni: current.turni.filter((_, i) => i !== index) }
-                              : current
-                          )
-                        }
-                        className="absolute right-3 top-3 rounded-full border border-stone/60 px-2 py-0.5 text-xs text-ink/40 transition hover:border-terracotta hover:text-terracotta"
-                      >
-                        ✕
-                      </button>
-                    ) : null}
-                    <label className="grid gap-2 text-sm text-ink/65">
-                      Nome turno
-                      <input
-                        className="rounded-2xl border border-stone bg-white/80 px-4 py-3 text-ink outline-none transition focus:border-gold"
-                        value={turno.name}
-                        onChange={(event) =>
-                          setForm((current) =>
-                            current
-                              ? {
-                                  ...current,
-                                  turni: current.turni.map((item, itemIndex) =>
-                                    itemIndex === index ? { ...item, name: event.target.value } : item
-                                  )
-                                }
-                              : current
-                          )
-                        }
-                      />
-                    </label>
-                    {(["start", "end"] as const).map((field) => (
-                      <label key={field} className="grid gap-2 text-sm text-ink/65">
-                        {field === "start" ? "Inizio" : "Fine"}
-                        <input
-                          type="time"
-                          className="rounded-2xl border border-stone bg-white/80 px-4 py-3 text-ink outline-none transition focus:border-gold"
-                          value={turno[field]}
-                          onChange={(event) =>
-                            setForm((current) =>
-                              current
-                                ? {
-                                    ...current,
-                                    turni: current.turni.map((item, itemIndex) =>
-                                      itemIndex === index ? { ...item, [field]: event.target.value } : item
-                                    )
-                                  }
-                                : current
-                            )
-                          }
-                        />
-                      </label>
-                    ))}
-                    <label className="grid gap-2 text-sm text-ink/65">
-                      Coperti max
-                      <input
-                        type="number"
-                        min={1}
-                        className="rounded-2xl border border-stone bg-white/80 px-4 py-3 text-ink outline-none transition focus:border-gold"
-                        value={turno.max_covers}
-                        onChange={(event) =>
-                          setForm((current) =>
-                            current
-                              ? {
-                                  ...current,
-                                  turni: current.turni.map((item, itemIndex) =>
-                                    itemIndex === index
-                                      ? { ...item, max_covers: Number(event.target.value) }
-                                      : item
-                                  )
-                                }
-                              : current
-                          )
-                        }
-                      />
-                    </label>
-                  </div>
                 ))}
+              </div>
+            </div>
+          </SectionCard>
+
+          {/* Telephony */}
+          <SectionCard title="Telefono" kicker="Numeri e routing">
+            <div className="grid gap-4">
+              <div
+                className={`flex items-center justify-between gap-4 rounded-2xl border px-4 py-3 ${
+                  form.is_active
+                    ? "border-olive/30 bg-olive/8"
+                    : "border-terracotta/25 bg-terracotta/8"
+                }`}
+              >
+                <div>
+                  <p className="text-sm font-semibold text-ink">
+                    {form.is_active ? "Agente attivo" : "Agente in pausa"}
+                  </p>
+                  <p className="mt-0.5 text-xs text-ink/50">
+                    {form.is_active
+                      ? "Il telefono risponde automaticamente."
+                      : "Le chiamate non vengono gestite dall'AI."}
+                  </p>
+                </div>
                 <button
                   type="button"
-                  onClick={() =>
-                    setForm((current) =>
-                      current
-                        ? {
-                            ...current,
-                            turni: [...current.turni, { name: "", start: "19:00", end: "23:00", max_covers: 30 }]
-                          }
-                        : current
-                    )
-                  }
-                  className="rounded-[1.5rem] border border-dashed border-stone/60 px-4 py-3 text-sm text-ink/50 transition hover:border-gold hover:text-ink/70"
+                  role="switch"
+                  aria-checked={form.is_active}
+                  onClick={() => updateField("is_active", !form.is_active)}
+                  className={`relative h-7 w-12 shrink-0 rounded-full border transition-colors ${
+                    form.is_active
+                      ? "border-olive/40 bg-olive"
+                      : "border-stone bg-stone/40"
+                  }`}
                 >
-                  + Aggiungi turno
+                  <span
+                    className={`absolute top-0.5 h-6 w-6 rounded-full bg-white shadow transition-all ${
+                      form.is_active ? "left-[calc(100%-1.625rem)]" : "left-0.5"
+                    }`}
+                  />
                 </button>
               </div>
+              <Field label="Motore voce" value="OpenAI Realtime" disabled />
+              <Field
+                label="Numero Twilio"
+                value={form.twilio_phone ?? ""}
+                onChange={(v) => updateField("twilio_phone", v || null)}
+              />
+              <Field
+                label="Numero backup umano"
+                value={form.escalation_phone ?? ""}
+                onChange={(v) => updateField("escalation_phone", v || null)}
+              />
+            </div>
+          </SectionCard>
 
-              <div className="grid gap-4 sm:grid-cols-2">
-                {Object.entries(form.booking_rules).map(([key, value]) => {
-                  const ruleLabels: Record<string, string> = {
-                    min_party: "Coperti minimi",
-                    max_party: "Coperti massimi",
-                    large_group_threshold: "Soglia gruppo grande",
-                    max_advance_days: "Prenotazione max giorni avanti",
-                    min_lead_hours: "Preavviso minimo (ore)",
-                  };
-                  return (
-                  <label key={key} className="grid gap-2 text-sm text-ink/65">
-                    {ruleLabels[key] ?? key}
-                    <input
-                      type="number"
-                      min={0}
-                      className="rounded-2xl border border-stone bg-ivory/80 px-4 py-3 text-ink outline-none transition focus:border-gold"
-                      value={value}
-                      onChange={(event) =>
-                        setForm((current) =>
-                          current
-                            ? {
-                                ...current,
-                                booking_rules: {
-                                  ...current.booking_rules,
-                                  [key]: Number(event.target.value)
-                                }
-                              }
-                            : current
-                        )
-                      }
-                    />
-                  </label>
-                  );
-                })}
-              </div>
-
+          {/* AI Personalization */}
+          <SectionCard title="Agente AI" kicker="Personalizzazione">
+            <div className="grid gap-4">
               <label className="grid gap-2 text-sm text-ink/65">
-                Chiusure settimanali (separate da virgola)
-                <input
-                  className="rounded-2xl border border-stone bg-ivory/80 px-4 py-3 text-ink outline-none transition focus:border-gold"
-                  value={form.weekly_closures.join(", ")}
-                  onChange={(event) =>
-                    setForm((current) =>
-                      current
-                        ? {
-                            ...current,
-                            weekly_closures: event.target.value
-                              .split(",")
-                              .map((item) => item.trim())
-                              .filter(Boolean)
-                          }
-                        : current
-                    )
-                  }
+                Greeting iniziale
+                <textarea
+                  rows={2}
+                  className="rounded-2xl border border-stone bg-white/80 px-4 py-3 text-ink outline-none transition focus:border-gold"
+                  placeholder="{saluto}, Trattoria Madonnina. Come posso aiutarla?"
+                  value={form.custom_greeting ?? ""}
+                  onChange={(e) => updateField("custom_greeting", e.target.value || null)}
                 />
               </label>
-
               <label className="grid gap-2 text-sm text-ink/65">
-                Chiusure straordinarie (YYYY-MM-DD, separate da virgola)
-                <input
-                  className="rounded-2xl border border-stone bg-ivory/80 px-4 py-3 text-ink outline-none transition focus:border-gold"
-                  value={form.closure_dates.join(", ")}
-                  onChange={(event) =>
-                    setForm((current) =>
-                      current
-                        ? {
-                            ...current,
-                            closure_dates: event.target.value
-                              .split(",")
-                              .map((item) => item.trim())
-                              .filter(Boolean)
-                          }
-                        : current
-                    )
-                  }
+                Note stile agente
+                <textarea
+                  rows={3}
+                  className="rounded-2xl border border-stone bg-white/80 px-4 py-3 text-ink outline-none transition focus:border-gold"
+                  placeholder="Warm, concise, premium Italian hospitality tone."
+                  value={form.agent_style_notes ?? ""}
+                  onChange={(e) => updateField("agent_style_notes", e.target.value || null)}
                 />
               </label>
-
-              <div className="rounded-[1.4rem] border border-stone/80 bg-ivory/60 p-4 text-sm leading-7 text-ink/68">
-                <p className="font-semibold text-ink">Cosa mantenere</p>
-                <p className="mt-2">
-                  Qui stai controllando il vero comportamento operativo del ristorante: turni, chiusure e regole che il telefono rispetta in tempo reale.
+              <div className="rounded-xl border border-stone/70 bg-ivory/50 px-4 py-4">
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-ink/40">
+                  Anteprima greeting
                 </p>
-                <p className="mt-4 font-semibold text-ink">Cosa migliorare</p>
-                <p className="mt-2">
-                  Tieni i nomi dei turni semplici e riconoscibili dal team. Quando cambi capienza o chiusure, salva prima del rush servizio per evitare promesse non allineate.
+                <p className="mt-2 font-display text-xl leading-tight text-ink">{greetingPreview}</p>
+                <p className="mt-2 text-xs text-ink/50">
+                  Usa <strong>{`{saluto}`}</strong> per Buongiorno/Buonasera automatico.
                 </p>
               </div>
             </div>
           </SectionCard>
+
+          {/* Turni */}
+          <SectionCard title="Turni" kicker="Servizi giornalieri">
+            <div className="grid gap-4">
+              {form.turni.map((turno, index) => (
+                <div
+                  key={`${turno.name}-${index}`}
+                  className="relative grid gap-3 rounded-xl border border-stone/80 bg-ivory/60 p-4 pt-9 sm:grid-cols-4 sm:pt-4"
+                >
+                  {form.turni.length > 1 ? (
+                    <button
+                      type="button"
+                      title="Rimuovi"
+                      onClick={() =>
+                        setForm((cur) =>
+                          cur ? { ...cur, turni: cur.turni.filter((_, i) => i !== index) } : cur
+                        )
+                      }
+                      className="absolute right-3 top-2 text-xs text-ink/30 transition hover:text-terracotta"
+                    >
+                      ✕
+                    </button>
+                  ) : null}
+                  <Field
+                    label="Nome"
+                    value={turno.name}
+                    onChange={(v) =>
+                      setForm((cur) =>
+                        cur
+                          ? { ...cur, turni: cur.turni.map((t, i) => (i === index ? { ...t, name: v } : t)) }
+                          : cur
+                      )
+                    }
+                  />
+                  <label className="grid gap-2 text-sm text-ink/65">
+                    Inizio
+                    <input
+                      type="time"
+                      className="rounded-2xl border border-stone bg-white/80 px-4 py-3 text-ink outline-none transition focus:border-gold"
+                      value={turno.start}
+                      onChange={(e) =>
+                        setForm((cur) =>
+                          cur
+                            ? { ...cur, turni: cur.turni.map((t, i) => (i === index ? { ...t, start: e.target.value } : t)) }
+                            : cur
+                        )
+                      }
+                    />
+                  </label>
+                  <label className="grid gap-2 text-sm text-ink/65">
+                    Fine
+                    <input
+                      type="time"
+                      className="rounded-2xl border border-stone bg-white/80 px-4 py-3 text-ink outline-none transition focus:border-gold"
+                      value={turno.end}
+                      onChange={(e) =>
+                        setForm((cur) =>
+                          cur
+                            ? { ...cur, turni: cur.turni.map((t, i) => (i === index ? { ...t, end: e.target.value } : t)) }
+                            : cur
+                        )
+                      }
+                    />
+                  </label>
+                  <label className="grid gap-2 text-sm text-ink/65">
+                    Coperti max
+                    <input
+                      type="number"
+                      min={1}
+                      className="rounded-2xl border border-stone bg-white/80 px-4 py-3 text-ink outline-none transition focus:border-gold"
+                      value={turno.max_covers}
+                      onChange={(e) =>
+                        setForm((cur) =>
+                          cur
+                            ? { ...cur, turni: cur.turni.map((t, i) => (i === index ? { ...t, max_covers: Number(e.target.value) } : t)) }
+                            : cur
+                        )
+                      }
+                    />
+                  </label>
+                </div>
+              ))}
+              <button
+                type="button"
+                onClick={() =>
+                  setForm((cur) =>
+                    cur
+                      ? { ...cur, turni: [...cur.turni, { name: "", start: "19:00", end: "23:00", max_covers: 30 }] }
+                      : cur
+                  )
+                }
+                className="rounded-xl border border-dashed border-stone/60 px-4 py-3 text-sm text-ink/50 transition hover:border-gold hover:text-ink/70"
+              >
+                + Aggiungi turno
+              </button>
+            </div>
+          </SectionCard>
         </div>
-      </div>
+
+        {/* Booking rules + closures — full width */}
+        <SectionCard title="Regole prenotazione" kicker="Booking engine">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+            {Object.entries(form.booking_rules).map(([key, value]) => {
+              const labels: Record<string, string> = {
+                min_party: "Coperti min",
+                max_party: "Coperti max",
+                large_group_threshold: "Soglia gruppi",
+                max_advance_days: "Max giorni avanti",
+                min_lead_hours: "Preavviso min (h)",
+              };
+              return (
+                <label key={key} className="grid gap-2 text-sm text-ink/65">
+                  {labels[key] ?? key}
+                  <input
+                    type="number"
+                    min={0}
+                    className="rounded-2xl border border-stone bg-ivory/80 px-4 py-3 text-ink outline-none transition focus:border-gold"
+                    value={value}
+                    onChange={(e) =>
+                      updateField("booking_rules", { ...form.booking_rules, [key]: Number(e.target.value) })
+                    }
+                  />
+                </label>
+              );
+            })}
+          </div>
+          <div className="mt-5 grid gap-4 sm:grid-cols-2">
+            <Field
+              label="Chiusure settimanali (virgola)"
+              value={form.weekly_closures.join(", ")}
+              onChange={(v) =>
+                updateField(
+                  "weekly_closures",
+                  v.split(",").map((s) => s.trim()).filter(Boolean)
+                )
+              }
+            />
+            <Field
+              label="Chiusure straordinarie (YYYY-MM-DD)"
+              value={form.closure_dates.join(", ")}
+              onChange={(v) =>
+                updateField(
+                  "closure_dates",
+                  v.split(",").map((s) => s.trim()).filter(Boolean)
+                )
+              }
+            />
+          </div>
+        </SectionCard>
       </div>
     </DashboardShell>
+  );
+}
+
+function Field({
+  label,
+  value,
+  placeholder,
+  disabled,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  placeholder?: string;
+  disabled?: boolean;
+  onChange?: (value: string) => void;
+}) {
+  return (
+    <label className="grid gap-2 text-sm text-ink/65">
+      {label}
+      <input
+        className={`rounded-2xl border border-stone px-4 py-3 text-ink outline-none transition focus:border-gold ${
+          disabled ? "bg-stone/20 text-ink/50" : "bg-ivory/80"
+        }`}
+        value={value}
+        placeholder={placeholder}
+        disabled={disabled}
+        readOnly={disabled}
+        onChange={onChange ? (e) => onChange(e.target.value) : undefined}
+      />
+    </label>
   );
 }

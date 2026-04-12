@@ -1,186 +1,113 @@
 # Production State
 
-This file is a date-stamped snapshot of the currently deployed environment.
+Last updated: `2026-04-10`
+
+This file is the deployment-state snapshot for the OpenAI Realtime live-staging rollout.
 
 ## Snapshot Date
 
-`2026-03-28`
+`2026-04-10`
 
-## Current Deployment
+## Current Code Reality
 
-Google Cloud:
+The repository now targets:
 
-- project: `ristorante-ai-20260324-9471`
-- region: `europe-west1`
+- Twilio as telephony ingress
+- OpenAI Realtime as the live voice engine
+- backend-owned tool execution
+- local call finalization in `call_logs`
+- operator-managed prompt and session tuning through `/studio`
 
-Cloud Run services:
+The old ElevenLabs runtime path has been removed from the active app code.
 
-- backend service: `ristorante-ai-api`
-- backend latest ready revision: `ristorante-ai-api-00016-787`
-- backend URL: `https://ristorante-ai-api-jc7mvuujwq-ew.a.run.app`
-- frontend service: `ristorante-ai-dashboard`
-- frontend latest ready revision: `ristorante-ai-dashboard-00006-zh7`
-- frontend URL: `https://ristorante-ai-dashboard-jc7mvuujwq-ew.a.run.app`
+## Current Deployment Reality
 
-## Current Database
+The public staging environment is deployed on Cloud Run and is already using the backend-owned Twilio + OpenAI Realtime call path.
 
-Provider:
+Current public endpoints:
 
-- Supabase Postgres
+- backend: `https://ristorante-ai-api-jc7mvuujwq-ew.a.run.app`
+- dashboard: `https://ristorante-ai-dashboard-jc7mvuujwq-ew.a.run.app`
 
-Operational status:
+Current observed live revisions on `2026-04-10`:
 
-- reachable through the Supabase pooler
-- live schema version: `0005 (head)`
-- migration `0006` exists locally but has NOT been applied to production
+- backend: `ristorante-ai-api-00054-26n`
+- dashboard: `ristorante-ai-dashboard-00032-k99`
 
-Current live/staging table counts at verification time:
+Treat this as `live staging`, not final public production.
 
-- `restaurants: 1`
-- `users: 2`
-- `user_restaurants: 1`
-- `bookings: 5+` (growing from test calls)
-- `customers: 3+`
-- `booking_events: 3+`
-- `call_logs: 5+` (growing from test calls)
+Important deployment caveat:
 
-## Live Restaurant
+- local fixes made after the `2026-04-10` call review are not live until the backend is redeployed
+- the live `ALLOWED_ORIGINS` setting should include the current dashboard URL above before relying on browser-origin smoke tests
 
-- name: **Trattoria Madonnina**
-- UUID: `a1f59bc4-b750-4f2c-bcb1-0a703ac732c7`
-- slug: `madonnina`
-- timezone: `Europe/Rome`
-- city: Milan
-- Twilio phone: configured
-- ElevenLabs agent: configured and active
+## Current Database Reality
 
-## Current User Accounts
+The repository schema includes:
 
-- owner: `owner@trattoriamadonnina.it` — Giovanni Mercadante (role: owner)
-- operator: `operator@ristorante.ai` (role: operator)
+- generic call tracking fields from migration `0010`
+- persistent per-restaurant OpenAI config from migration `0011`
 
-## ElevenLabs Integration Status
+Key live-agent fields:
 
-- agent: active, receiving calls
-- voice model: Flash v2.5 (recommended to upgrade to v3 Conversational)
-- post-call webhook: **AUTO-DISABLED** — ElevenLabs disabled it due to repeated 401 errors
-  - root cause: `ELEVENLABS_WEBHOOK_SECRET` in GCP Secret Manager does not match the signing key ElevenLabs uses
-  - fix: update the secret in GCP Secret Manager, redeploy backend, re-enable webhook in ElevenLabs agent settings
-- tool endpoints: working after fixing `ELEVENLABS_TOOL_SECRET` header value
-- ElevenLabs quota: check usage dashboard — at least one call failed with "quota limit exceeded"
+- `restaurants.openai_prompt_override`
+- `restaurants.openai_realtime_settings`
+- `call_logs.voice_provider`
+- `call_logs.provider_call_id`
+- `call_logs.twilio_call_sid`
 
-## Pending Backend Changes (Implemented, NOT Deployed)
+Legacy compatibility columns still exist in the schema for historical safety:
 
-These are committed locally but not yet live on Cloud Run:
+- `restaurants.elevenlabs_agent_id`
+- `call_logs.elevenlabs_conversation_id`
 
-1. **Migration 0006** — `call_status` column on `call_logs` (successful/failed/unknown)
-2. **`{saluto}` greeting** — `personalization.py` resolves `{saluto}` placeholder before sending to ElevenLabs
-3. **`tool_error` outcome** — webhook detects tool errors and sets outcome accordingly
-4. **`call_status` in dashboard** — red/green/gray dot indicator on calls page
-5. **Tool health endpoint** — `GET /tools/health` for auth verification
-6. **Debug logging** — 401 failures log prefix hints
+They are no longer part of the active voice runtime.
 
-Deploy checklist:
-```bash
-# 1. Apply migration
-DATABASE_URL='<supabase-pooler-url>' uv run alembic upgrade head
-# 2. Deploy backend
-gcloud run deploy ristorante-ai-api --project ristorante-ai-20260324-9471 --region europe-west1 --source backend --clear-base-image --allow-unauthenticated
-```
+## Verified Locally
 
-## What Was Verified Live
+- backend lint
+- backend tests
+- dashboard production build
+- Alembic upgrade to `head` on a fresh local database
 
-- backend health endpoint
-- backend readiness endpoint
-- backend owner login
-- authenticated analytics request
-- authenticated bookings request
-- authenticated calls request
-- authenticated bookings export
-- authenticated calls export
-- booking events history endpoint
-- cross-origin session cookie behavior
-- browser-origin login/session flow from deployed frontend
-- frontend dashboard root rendering after authentication
-- repeatable smoke test in `scripts/production_smoke_test.py`
-- Twilio-style POST to `POST /api/twilio/inbound`
-- valid ElevenLabs `<Connect><Stream .../></Connect>` TwiML from backend inbound route
-- backend binding of `ELEVENLABS_API_KEY` from Google Secret Manager
-- successful end-to-end calls with booking creation and modification
+Baseline verification commands:
 
-## What Is Live But Not Final-Production
+- `cd backend && uv run ruff check app tests`
+- `cd backend && uv run pytest`
+- `cd dashboard && npm run build`
 
-The current environment is best described as a live staging deployment, not the final public production system.
+## Verified Live On `2026-04-10`
 
-Reasons:
+- Cloud Run backend received Twilio inbound webhooks and media streams.
+- OpenAI Realtime sessions ran against real phone calls.
+- Two real reservation calls completed successfully and persisted bookings.
+- Call transcripts, tool events, and usage metadata persisted to Supabase.
+- Twilio billing records and OpenAI usage metadata were reviewed for the day.
 
-- Supabase still contains demo/staging data
-- default Cloud Run domains are still in use
-- custom domains are not configured
-- real PSTN verification needed after Twilio console changes
-- telephony behavior still depends on Twilio console routing staying pointed at backend inbound route
-- post-call webhook currently disabled (must be re-enabled)
+## Known Live Issues From `2026-04-10` Review
 
-## Current Runtime Secrets Model
+- One unclear-audio call escalated after the agent treated garbled fragments too confidently.
+- A Postgres prepared-statement collision interrupted call finalization through the Supabase pooler.
+- One successful call shortened the caller name `Juan Manuel` to `Manuel`.
+- Live CORS config allowed an older dashboard origin but not the current visible dashboard URL.
 
-Secrets are stored in Google Secret Manager.
+Local code/docs now address the first three items. The CORS item is an environment/deploy configuration task.
 
-Current secret names:
+## Still Needing Live Re-Verification After Deploy
 
-- `database-url`
-- `jwt-secret`
-- `pii-encryption-key`
-- `elevenlabs-tool-secret`
-- `elevenlabs-personalization-secret`
-- `elevenlabs-webhook-secret` ← **must match ElevenLabs agent signing key to re-enable webhook**
-- `elevenlabs-api-key`
+- prepared-statement fix under a real Supabase pooled connection
+- prompt behavior on unclear audio and full customer names
+- human transfer with real Twilio credentials and `escalation_phone`
+- browser access from the current dashboard URL after `ALLOWED_ORIGINS` is corrected
 
-## Current Auth Reality
+## Before Calling This Production-Ready
 
-- backend-owned auth
-- session cookie-based auth
-- production cookie uses `Secure` + `SameSite=None`
-- dashboard uses `credentials: "include"`
+1. redeploy backend after the `2026-04-10` reliability fixes
+2. align `ALLOWED_ORIGINS` with the current dashboard URL
+3. confirm `/studio` saves and reloads live config correctly
+4. test one real inbound Twilio call end to end after redeploy
+5. test human transfer only for the allowed escalation cases
+6. verify calls, transcripts, bookings, tool events, and usage persist correctly
+7. decide whether to clean the existing staging Supabase project or create a separate production project
 
-## Important Operational Gotchas Already Learned
-
-These have already broken once and should not be forgotten:
-
-1. The frontend must receive `NEXT_PUBLIC_API_BASE_URL` at build time, not only runtime.
-2. Cloud Run source deploy will use `Dockerfile` if one exists in the source directory.
-3. If a service previously used buildpacks, switching to Dockerfile-based source deploys requires `--clear-base-image`.
-4. On default Cloud Run `*.run.app` domains, `/healthz` is intercepted before the request reaches the service. Use `/health` and `/readyz`.
-5. Historical data needed backfill once `customers` and `booking_events` were introduced.
-6. `ALLOWED_ORIGINS` must match the actual deployed frontend origin.
-7. Do not point Twilio to `https://api.elevenlabs.io/v1/convai/twilio/inbound_call` — returns 404.
-8. The supported live voice path is Twilio → backend `POST /api/twilio/inbound` → ElevenLabs `register_call`.
-9. ElevenLabs tool secrets must match exactly between ElevenLabs tool config and GCP Secret Manager. Mismatch causes 401 on every tool call.
-10. ElevenLabs will auto-disable webhooks after repeated 401 errors. Re-enable from agent settings after fixing the secret.
-11. ElevenLabs has per-plan call minute quotas. Calls will fail with "quota limit exceeded" when exceeded.
-
-## What Must Happen Before Calling This True Production
-
-1. Fix and re-enable the post-call webhook
-2. Apply migration 0006
-3. Deploy pending backend changes
-4. Create a clean production Supabase project (separate from staging)
-5. Run Alembic migrations there
-6. Bootstrap only real tenant data
-7. Add custom domains
-8. Wire real Twilio credentials/config
-9. Wire real ElevenLabs credentials/config
-10. Verify real PSTN inbound call flow end to end
-
-## Recommended Language For Future Docs Or Stakeholders
-
-Safe phrasing:
-
-- "live staging deployment"
-- "production-shaped deployment"
-- "Cloud Run + Supabase environment is operational"
-
-Unsafe phrasing unless the remaining steps are done:
-
-- "final production"
-- "customer-ready production database"
-- "fully launched telephony production system"
+Until those are done, this is a live-staging system with real OpenAI/Twilio traffic, not a verified public-production rollout.

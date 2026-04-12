@@ -19,6 +19,7 @@ def _engine_kwargs() -> dict:
         Path(database_path).parent.mkdir(parents=True, exist_ok=True)
         kwargs["connect_args"] = {"check_same_thread": False}
     else:
+        kwargs["connect_args"] = {"prepare_threshold": None}
         kwargs["pool_size"] = settings.db_pool_size
         kwargs["max_overflow"] = settings.db_max_overflow
         kwargs["pool_pre_ping"] = True

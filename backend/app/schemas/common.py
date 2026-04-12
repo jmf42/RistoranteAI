@@ -28,6 +28,11 @@ class BookingSource(StrEnum):
     walk_in = "walk_in"
 
 
+class VoiceProvider(StrEnum):
+    openai_realtime = "openai_realtime"
+    elevenlabs = "elevenlabs"
+
+
 class CallOutcome(StrEnum):
     booking_created = "booking_created"
     booking_modified = "booking_modified"

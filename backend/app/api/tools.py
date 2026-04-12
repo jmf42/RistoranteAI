@@ -38,7 +38,7 @@ def tools_health() -> dict:
     """Verify tool secret authentication is working.
 
     If you reach this endpoint, the ``X-Ristorante-Tool-Secret`` header is valid.
-    Call this from ElevenLabs or curl to confirm connectivity before running
+    Call this from OpenAI Realtime tooling or curl to confirm connectivity before running
     real tool calls.
     """
     return {"status": "ok", "auth": "valid"}

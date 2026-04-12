@@ -8,7 +8,6 @@ import {
   CalendarClock,
   CircleAlert,
   CalendarDays,
-  CookingPot,
   Menu,
   PhoneCall,
   PhoneForwarded,
@@ -24,7 +23,6 @@ import { useWorkspace } from "@/components/workspace-provider";
 const navigation = [
   { href: "/", label: "Panoramica", icon: BarChart3 },
   { href: "/bookings", label: "Prenotazioni", icon: CalendarDays },
-  { href: "/capacity", label: "Capienza", icon: CookingPot },
   { href: "/calls", label: "Chiamate", icon: PhoneCall },
   { href: "/settings", label: "Impostazioni", icon: Settings },
   { href: "/admin", label: "Admin", icon: ShieldCheck, operatorOnly: true }
@@ -56,17 +54,29 @@ export function DashboardShell({
   } = useWorkspace();
 
   const visibleNavigation = useMemo(
-    () => navigation.filter((item) => !item.operatorOnly || user?.role === "operator"),
+    () =>
+      navigation
+        .filter((item) => {
+          if (user?.role === "owner") {
+            return ["/", "/calls", "/settings"].includes(item.href);
+          }
+          return !item.operatorOnly || user?.role === "operator";
+        })
+        .map((item) =>
+          user?.role === "owner" && item.href === "/"
+            ? { ...item, label: "Agenda" }
+            : item
+        ),
     [user?.role]
   );
 
   const mobilePrimaryNavigation = useMemo(
     () =>
-      visibleNavigation.filter((item) =>
-        ["/", "/bookings", "/capacity", "/calls"].includes(item.href)
-      ),
+      visibleNavigation.filter((item) => ["/", "/bookings", "/calls", "/settings"].includes(item.href)),
     [visibleNavigation]
   );
+
+  const isOwner = user?.role === "owner";
 
   const readinessItems = useMemo(() => {
     if (!restaurant) {
@@ -80,8 +90,8 @@ export function DashboardShell({
         icon: <CalendarClock size={16} />
       },
       {
-        label: restaurant.twilio_phone && restaurant.elevenlabs_agent_id ? "Linea AI pronta" : "Linea AI da collegare",
-        tone: restaurant.twilio_phone && restaurant.elevenlabs_agent_id ? "good" : "warn",
+        label: restaurant.twilio_phone ? "Linea AI pronta" : "Linea AI da collegare",
+        tone: restaurant.twilio_phone ? "good" : "warn",
         icon: <RadioTower size={16} />
       },
       {
@@ -101,7 +111,7 @@ export function DashboardShell({
     if (!restaurant.is_active) {
       issues.push({ label: "Ristorante in pausa", tone: "warn" as const });
     }
-    if (!(restaurant.twilio_phone && restaurant.elevenlabs_agent_id)) {
+    if (!restaurant.twilio_phone) {
       issues.push({ label: "Linea AI da collegare", tone: "warn" as const });
     }
     if (!restaurant.escalation_phone) {
@@ -260,9 +270,9 @@ export function DashboardShell({
               <p className="mt-2 text-sm leading-6 text-ivory/65">
                 {restaurant?.address ?? "Seleziona un tenant per vedere i dettagli operativi."}
               </p>
-              {readinessItems.length ? (
-                <div className="mt-4 flex flex-wrap gap-2">
-                  {readinessItems.map((item) => (
+            {!isOwner && readinessItems.length ? (
+              <div className="mt-4 flex flex-wrap gap-2">
+                {readinessItems.map((item) => (
                     <span
                       key={item.label}
                       className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-ivory/75"
@@ -299,11 +309,13 @@ export function DashboardShell({
           <div className="flex h-full flex-col rounded-[2rem] border border-white/70 bg-night px-6 py-7 text-ivory shadow-card">
             <div>
               <p className="ui-kicker text-xs font-semibold uppercase tracking-[0.24em] text-gold/80 sm:tracking-[0.34em]">
-                Italian hospitality OS
+                {isOwner ? "Owner board" : "Italian hospitality OS"}
               </p>
               <h1 className="ui-display-title mt-4 font-display text-4xl">Ristorante AI</h1>
               <p className="mt-3 text-sm text-ivory/70">
-                Più tavoli pieni, meno telefonate al banco. Tutto in una sola cabina di regia.
+                {isOwner
+                  ? "Agenda servizi e chiamate in un’unica vista calma e leggibile."
+                  : "Più tavoli pieni, meno telefonate al banco. Tutto in una sola cabina di regia."}
               </p>
             </div>
             <nav className="mt-10 space-y-2">
@@ -326,7 +338,7 @@ export function DashboardShell({
                 );
               })}
             </nav>
-            {readinessItems.length ? (
+            {!isOwner && readinessItems.length ? (
               <div className="mt-8 rounded-[1.7rem] border border-white/10 bg-white/5 p-4">
                 <p className="text-xs uppercase tracking-[0.28em] text-gold/70">Stato ristorante</p>
                 <div className="mt-4 space-y-2">
@@ -375,11 +387,13 @@ export function DashboardShell({
                 <p className="mt-2 max-w-2xl text-sm leading-6 text-ink/65">{subtitle}</p>
                 <div className="mt-4 flex flex-wrap gap-2.5">
                   <StatusBadge tone="neutral">{todayLabel}</StatusBadge>
-                  {headerReadinessItems.map((item) => (
-                    <StatusBadge key={item.label} tone={item.tone}>
-                      {item.label}
-                    </StatusBadge>
-                  ))}
+                  {!isOwner
+                    ? headerReadinessItems.map((item) => (
+                        <StatusBadge key={item.label} tone={item.tone}>
+                          {item.label}
+                        </StatusBadge>
+                      ))
+                    : null}
                 </div>
               </div>
               <div className="flex w-full flex-col gap-2.5 sm:flex-row sm:flex-wrap sm:items-center xl:w-auto xl:justify-end">
@@ -399,9 +413,11 @@ export function DashboardShell({
                     </select>
                   </label>
                 ) : null}
-                <div className="min-w-0 rounded-[1.25rem] border border-stone bg-ivory/70 px-4 py-3 text-sm leading-6 text-ink/65 sm:flex-1 xl:max-w-[320px] xl:flex-none">
-                  {restaurant ? restaurant.address : "Nessun ristorante attivo"}
-                </div>
+                {!isOwner && (
+                  <div className="min-w-0 rounded-[1.25rem] border border-stone bg-ivory/70 px-4 py-3 text-sm leading-6 text-ink/65 sm:flex-1 xl:max-w-[320px] xl:flex-none">
+                    {restaurant ? restaurant.address : "Nessun ristorante attivo"}
+                  </div>
+                )}
                 {actions ? (
                   <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:flex-wrap sm:justify-end">
                     {actions}
@@ -409,6 +425,7 @@ export function DashboardShell({
                 ) : null}
               </div>
             </header>
+
             {workspaceError ? (
               <div className="mb-5 flex items-start gap-3 rounded-[1.5rem] border border-terracotta/20 bg-terracotta/8 px-4 py-4 text-sm text-terracotta xl:mb-6">
                 <CircleAlert size={18} className="mt-0.5 shrink-0" />
@@ -424,7 +441,7 @@ export function DashboardShell({
       </div>
 
       <div className="lg:hidden fixed inset-x-0 bottom-0 z-40 px-3 pb-[calc(0.8rem+env(safe-area-inset-bottom))]">
-        <div className="grid grid-cols-5 gap-1 rounded-[1.55rem] border border-white/10 bg-night/92 p-1.5 shadow-[0_24px_80px_rgba(16,12,10,0.4)] backdrop-blur">
+        <div className={`grid ${user?.role === "operator" ? "grid-cols-5" : "grid-cols-3"} gap-1 rounded-[1.55rem] border border-white/10 bg-night/92 p-1.5 shadow-[0_24px_80px_rgba(16,12,10,0.4)] backdrop-blur`}>
           {mobilePrimaryNavigation.map((item) => {
             const Icon = item.icon;
             const active = pathname === item.href;
@@ -443,14 +460,16 @@ export function DashboardShell({
               </Link>
             );
           })}
-          <button
-            type="button"
-            onClick={() => setMobileMenuOpen(true)}
-            className="flex min-w-0 flex-col items-center gap-1 rounded-[1rem] px-1.5 py-2 text-[10px] font-semibold text-ivory/60 transition"
-          >
-            <Menu size={18} />
-            <span className="truncate">Menu</span>
-          </button>
+          {user?.role === "operator" ? (
+            <button
+              type="button"
+              onClick={() => setMobileMenuOpen(true)}
+              className="flex min-w-0 flex-col items-center gap-1 rounded-[1rem] px-1.5 py-2 text-[10px] font-semibold text-ivory/60 transition"
+            >
+              <Menu size={18} />
+              <span className="truncate">Menu</span>
+            </button>
+          ) : null}
         </div>
       </div>
     </div>

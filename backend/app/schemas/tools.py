@@ -88,15 +88,3 @@ class CancelBookingRequest(AppBaseModel):
 
 class CancelBookingResponse(AppBaseModel):
     success: bool
-
-
-class TwilioPersonalizationRequest(AppBaseModel):
-    caller_id: str
-    agent_id: str
-    called_number: str
-    call_sid: str
-
-
-class TwilioPersonalizationResponse(AppBaseModel):
-    type: str = "conversation_initiation_client_data"
-    dynamic_variables: dict[str, Any]

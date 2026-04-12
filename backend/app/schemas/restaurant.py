@@ -6,7 +6,7 @@ from typing import Any
 
 from pydantic import Field, field_validator
 
-from app.schemas.common import AppBaseModel, SyncStatus
+from app.schemas.common import AppBaseModel, SyncStatus, VoiceProvider
 
 VALID_WEEKDAYS = {"monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"}
 TIME_RANGE_RE = re.compile(r"^\d{2}:\d{2}-\d{2}:\d{2}$")
@@ -21,7 +21,7 @@ class RestaurantBase(AppBaseModel):
     slug: str
     name: str
     twilio_phone: str | None = None
-    elevenlabs_agent_id: str | None = None
+    voice_provider: VoiceProvider = VoiceProvider.openai_realtime
     timezone: str = "Europe/Rome"
     address: str
     opening_hours: dict[str, str] = Field(default_factory=dict)
@@ -127,7 +127,7 @@ class RestaurantUpdate(AppBaseModel):
     slug: str | None = None
     name: str | None = None
     twilio_phone: str | None = None
-    elevenlabs_agent_id: str | None = None
+    voice_provider: VoiceProvider | None = None
     timezone: str | None = None
     address: str | None = None
     opening_hours: dict[str, str] | None = None

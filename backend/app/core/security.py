@@ -47,18 +47,30 @@ def _resolve_seed(app_settings: Settings) -> str:
     return configured if configured else app_settings.jwt_secret
 
 
+_fernet_cache: dict[str, MultiFernet] = {}
+
+
 def get_fernet(app_settings: Settings = settings) -> MultiFernet:
-    """Returns a MultiFernet that encrypts with v2 (PBKDF2) and decrypts with either."""
+    """Returns a MultiFernet that encrypts with v2 (PBKDF2) and decrypts with either.
+
+    The Fernet instance is cached by seed identity to avoid re-running the expensive
+    PBKDF2 key derivation (600k iterations, ~120ms) on every encrypt/decrypt call.
+    """
     seed = _resolve_seed(app_settings)
+    if seed in _fernet_cache:
+        return _fernet_cache[seed]
     configured = app_settings.pii_encryption_key
     if configured and len(configured.encode("utf-8")) == 44:
         # Raw Fernet key provided directly — use as-is for primary, v1 as fallback
         primary = Fernet(configured.encode("utf-8"))
         fallback = Fernet(_build_fernet_key_v1(configured))
-        return MultiFernet([primary, fallback])
-    v2 = Fernet(_build_fernet_key_v2(seed))
-    v1 = Fernet(_build_fernet_key_v1(seed))
-    return MultiFernet([v2, v1])
+        result = MultiFernet([primary, fallback])
+    else:
+        v2 = Fernet(_build_fernet_key_v2(seed))
+        v1 = Fernet(_build_fernet_key_v1(seed))
+        result = MultiFernet([v2, v1])
+    _fernet_cache[seed] = result
+    return result
 
 
 def encrypt_pii(value: str, app_settings: Settings = settings) -> str:
