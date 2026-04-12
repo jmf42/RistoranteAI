@@ -1,9 +1,11 @@
 # Setup
 
+Last updated: `2026-04-10`
+
 ## Local Fast Path
 
 1. Copy `.env.example` to `.env`
-2. Generate strong local secrets if needed:
+2. Generate local secrets if needed:
    `python3 scripts/generate_secrets.py`
 3. Start backend:
    `cd backend && uv sync --dev && uv run uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload`
@@ -11,140 +13,104 @@
    `cd dashboard && npm install && npm run dev`
 5. Open `http://127.0.0.1:3000`
 
-If you previously cleaned local generated files, these are the only two restore commands you need:
-
-- backend: `uv sync --dev`
-- dashboard: `npm install`
-
 ## Demo Credentials
 
 - owner: `owner@trattoriamadonnina.it` / `madonnina`
 - operator: `operator@ristorante.ai` / `demo-password`
 
-The owner account maps to **Trattoria Madonnina** (UUID: `a1f59bc4-b750-4f2c-bcb1-0a703ac732c7`).
+## Local Environment Variables
 
-## Local Database Modes
-
-### Fastest local mode
-
-Use SQLite:
+### Minimum local backend config
 
 ```env
 DATABASE_URL=sqlite:///./data/ristorante_ai.db
 AUTO_CREATE_SCHEMA=true
 SEED_DEMO=true
+TOOL_SECRET=local-tool-secret
+PUBLIC_BASE_URL=http://127.0.0.1:8000
+OPENAI_API_KEY=
+OPENAI_REALTIME_MODEL=gpt-realtime-1.5
+OPENAI_REALTIME_VOICE=cedar
 ```
+
+You can leave `OPENAI_API_KEY` empty until you want to run real Realtime sessions. The app will still boot, but live Realtime simulation and phone-agent behavior will fail until the key is present.
 
 ### Production-like local mode
 
-Use local PostgreSQL:
-
-```env
-DATABASE_URL=postgresql+psycopg://ristorante:ristorante@localhost:5432/ristorante_ai
-```
-
-Then start only the local Postgres container:
+Use Docker Postgres:
 
 ```bash
 docker compose up db
 ```
 
-## Managed PostgreSQL Mode
+and set:
 
-For a real managed database, use Supabase and follow:
+```env
+DATABASE_URL=postgresql+psycopg://ristorante:ristorante@localhost:5432/ristorante_ai
+AUTO_CREATE_SCHEMA=false
+SEED_DEMO=false
+```
 
-- `docs/OPERATIONS.md`
-- `docs/INTEGRATIONS.md`
+Then apply migrations:
 
-Important production differences:
+```bash
+cd backend
+uv run alembic upgrade head
+```
 
-- `AUTO_CREATE_SCHEMA=false`
-- `SEED_DEMO=false`
-- use Alembic migrations
-- set `SESSION_COOKIE_SECURE=true`
-- set explicit `ALLOWED_ORIGINS`
+## Realtime-Specific Config
 
-## Important Environment Variables
+- `OPENAI_API_KEY`
+  required for live Realtime sessions
+- `OPENAI_REALTIME_MODEL`
+  default `gpt-realtime-1.5`
+- `OPENAI_REALTIME_VOICE`
+  default `cedar`
+- `PUBLIC_BASE_URL`
+  public backend base URL used in Twilio stream and callback URLs
+- `TWILIO_ACCOUNT_SID`
+  required for live transfer to a human
+- `TWILIO_AUTH_TOKEN`
+  required for live transfer to a human
 
-- `DATABASE_URL`
-  SQLite for quick local work, PostgreSQL for production-like work
-- `AUTO_CREATE_SCHEMA`
-  keep `true` only for local bootstrap
-- `SEED_DEMO`
-  keep `true` only for local bootstrap
-- `ALLOWED_ORIGINS`
-  must include the actual dashboard origin
-- `JWT_SECRET`
-  long random secret (32+ bytes)
-- `PII_ENCRYPTION_KEY`
-  must be explicit and stable in production — changing it makes existing encrypted data unreadable
-- `ELEVENLABS_TOOL_SECRET`
-  shared secret for server tool endpoints — must match value configured in ElevenLabs tool headers
-- `ELEVENLABS_PERSONALIZATION_SECRET`
-  shared secret for personalization requests (falls back to tool secret if not set)
-- `ELEVENLABS_WEBHOOK_SECRET`
-  required for validating post-call webhook signatures in production — must match ElevenLabs agent signing key
-- `ELEVENLABS_API_KEY`
-  required for Twilio call registration, transcript retrieval, agent sync
-- `NEXT_PUBLIC_API_BASE_URL`
-  browser-visible backend URL for the dashboard — **required at build time**
+## Studio Workflow
+
+The platform operator can tune the live agent in the dashboard:
+
+1. login as operator
+2. open `/studio`
+3. preview prompt, tool schema, and session payload
+4. confirm readiness checks for env, Twilio, and escalation
+5. test tools against the real backend
+6. run text-mode Realtime simulations
+7. run the multi-scenario simulation suite after meaningful prompt/session changes
+8. save the runtime config for the restaurant
+
+Saved studio config becomes the live phone-agent configuration.
 
 ## Verification
 
-After starting locally:
+Backend:
 
 ```bash
 cd backend
 uv run ruff check app tests
 uv run pytest
+uv run alembic upgrade head
 ```
 
-Expected: 95 tests pass.
+Frontend:
 
 ```bash
 cd dashboard
 npm run build
 ```
 
-Expected: clean build with no TypeScript errors.
-
-## ElevenLabs Local Testing
-
-To test tool endpoints locally, use the health check:
-
-```bash
-curl -i http://127.0.0.1:8000/api/tools/health \
-  -H "X-Ristorante-Tool-Secret: local-tool-secret"
-```
-
-Expected: `{"status": "ok", "auth": "valid"}`
-
-Note: `local-tool-secret` is the default in `.env.example`. Production uses a secret from GCP Secret Manager.
-
 ## Cloud Run Note
 
-The verified deployment target is Cloud Run.
-
-For public smoke checks on Cloud Run default `*.run.app` domains:
+On Cloud Run default `*.run.app` domains:
 
 - use `/health` for liveness
 - use `/readyz` for readiness
 
-Do not depend on `/healthz` for the public Cloud Run URL — it is intercepted by Google before reaching the service.
-
-## Running Alembic Migrations Locally
-
-```bash
-cd backend
-
-# Apply all pending migrations
-uv run alembic upgrade head
-
-# Check current version
-uv run alembic current
-
-# Create a new migration (after changing entities.py)
-uv run alembic revision --autogenerate -m "description_of_change"
-```
-
-Migration files live in `backend/alembic/versions/`. Follow the naming pattern: `YYYYMMDD_NNNN_description.py`.
+Do not rely on `/healthz` for public smoke checks, because Google intercepts it before the request reaches the app.

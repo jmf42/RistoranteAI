@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, Request
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_db, get_restaurant_cached, get_restaurant_or_404, verify_tool_secret
+from app.api.deps import get_db, get_restaurant_cached, verify_tool_secret
 from app.core.observability import json_log
 from app.models import Booking
 from app.schemas.booking import BookingCreate, BookingUpdate
@@ -38,7 +38,7 @@ def tools_health() -> dict:
     """Verify tool secret authentication is working.
 
     If you reach this endpoint, the ``X-Ristorante-Tool-Secret`` header is valid.
-    Call this from ElevenLabs or curl to confirm connectivity before running
+    Call this from OpenAI Realtime tooling or curl to confirm connectivity before running
     real tool calls.
     """
     return {"status": "ok", "auth": "valid"}
@@ -93,7 +93,6 @@ def create_booking_tool(
         )
         return CreateBookingToolResponse(success=False, reason=error["reason"], alternatives=error["alternatives"])
     db.commit()
-    db.refresh(booking)
     json_log(
         "app.tools",
         {

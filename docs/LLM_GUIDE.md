@@ -1,176 +1,138 @@
 # LLM Guide
 
-This is the primary orientation file for future LLMs working in this repository.
+Last updated: `2026-04-12`
 
-Read this first. Then read:
+This document explains how the voice agent is now built.
 
-1. `docs/PRODUCTION_STATE.md`
-2. `docs/ARCHITECTURE.md`
-3. `docs/DATABASE.md`
-4. `docs/OPERATIONS.md`
-5. `docs/INTEGRATIONS.md`
+## Current Agent Architecture
 
-## What The Product Is
+- voice model: OpenAI Realtime
+- phone transport: Twilio Media Streams
+- orchestration: backend-owned websocket bridge
+- tools: backend-owned function tools
+- prompt/config storage: database-backed per restaurant
+- operator tuning surface: dashboard `/studio`
 
-Ristorante AI is an AI phone receptionist and restaurant operations dashboard.
+## Why This Replaced ElevenLabs
 
-The repo covers three practical surfaces:
+The old issues were:
 
-- voice operations through ElevenLabs and Twilio-facing backend endpoints
-- reservation logic and analytics through the FastAPI backend
-- owner/operator workflows through the Next.js dashboard
+- tool instability
+- vendor-console drift from app state
+- transcript and call-state dependence on a third-party console
+- harder debugging of live behavior
 
-## Current Ground Truth
+The new design keeps the important parts inside the app:
 
-As of `2026-03-28`:
+- prompt generation
+- model choice
+- tool schema
+- confirmation guardrails
+- call outcome persistence
+- transcript preview
 
-- backend is deployed on Google Cloud Run (`ristorante-ai-api`, revision `00016-787`)
-- dashboard is deployed on Google Cloud Run (`ristorante-ai-dashboard`, revision `00006-zh7`)
-- database is Supabase Postgres
-- live schema version: `0005 (head)` — migrations `0006`, `0007`, and `0008` exist locally but have NOT been deployed
-- the live environment is operational but staging-grade (demo data, default Cloud Run domains)
-- the Twilio inbound path is backend-owned at `POST /api/twilio/inbound`
-- the Twilio fallback path is `POST /api/twilio/voice-fallback`
-- the old manual Twilio target `https://api.elevenlabs.io/v1/convai/twilio/inbound_call` is a dead path — do not reuse it
-- the post-call webhook in ElevenLabs was **auto-disabled** due to 401 errors — must be re-enabled after fixing the signing secret
-- the AI agent is named **Edoardo** (responds to this name only if asked)
-- the restaurant in the live demo is **Trattoria Madonnina** (UUID: `a1f59bc4-b750-4f2c-bcb1-0a703ac732c7`)
-- owner login: `owner@trattoriamadonnina.it` (name: Giovanni Mercadante)
+## Prompting Rules
 
-Do not describe the current environment as final production unless `docs/PRODUCTION_STATE.md` says that is true.
+The live prompt is generated in `backend/app/services/openai_realtime.py` unless a restaurant-specific override has been saved.
 
-## What Changed Recently
+The baseline prompt is intentionally structured for Realtime:
 
-The current codebase already includes:
+- `Role & Objective`
+- `Personality & Tone`
+- `Language`
+- `Context`
+- `CRITICAL RULES`
+- `Tools`
+- `Conversation Flow`
+- `Write Action Rules`
+- `Duplicate Prevention`
+- `Safety & Escalation`
+- `Unclear Audio`
 
-- Alembic migrations for production schema control
-- request ID middleware and JSON logging
-- rate limiting
-- Cloud Run-ready deployment packaging
-- secure cross-origin session cookies
-- bookings export and calls export
-- booking events history endpoint and dashboard history view
-- production smoke testing
-- server-side Twilio inbound call registration with ElevenLabs `register_call`
-- `call_status` field on `CallLog` (successful/failed/unknown) — migration `0006`, NOT YET deployed
-- raw webhook inbox table (`raw_webhook_events`) — migration `0007`, NOT YET deployed
-- Supabase RLS hardening on all public app tables — migration `0008`, NOT YET deployed
-- `tool_error` as a new `CallOutcome` enum value — NOT YET deployed
-- `{saluto}` placeholder support in `custom_greeting` (resolves to Buongiorno/Buonasera by hour) — NOT YET deployed
-- `current_date`, `current_time`, `current_day_of_week` added to personalization dynamic variables — NOT YET deployed
-- debug logging on 401 failures in `deps.py`
-- `GET /tools/health` diagnostic endpoint
+The anti-repetition guidance is part of `Personality & Tone`, not a separate `Variety` section.
 
-## Pending Deploy Items
+The baseline prompt also encodes lessons from live-call review:
 
-These are implemented in code but NOT yet deployed to Cloud Run:
+- preserve full customer names exactly instead of shortening them
+- treat nonsense or garbled fragments such as isolated letters as invalid booking data
+- ask only for the missing detail when audio is unclear
+- use human transfer as a last resort, not as a shortcut for normal clarification
 
-1. Migrations `0006` through `0008` — `call_status`, `raw_webhook_events`, and Supabase RLS hardening
-2. `{saluto}` greeting fix in `personalization.py`
-3. `tool_error` outcome detection in `webhooks.py`
-4. `call_status` in webhook, schema, dashboard
-5. Tool health endpoint
-6. Debug logging on auth failures
+This follows current OpenAI Realtime prompting guidance:
 
-**Deploy order:** run `alembic upgrade head` on production DB first, then deploy backend.
+- short labeled sections
+- explicit language rules
+- explicit tool-use rules
+- short latency-masking preambles
+- explicit recovery behavior
+- narrow escalation criteria
 
-## Known Issues (Do Not Regress)
+Current language policy in the baseline prompt:
 
-### Security
+- the first greeting starts in Italian
+- if the caller clearly speaks another language the agent can handle, it mirrors that language
+- only the language changes; the booking flow, tool rules, safety rules, and confirmation rules stay the same
 
-- Twilio inbound endpoint (`/api/twilio/inbound`) has NO signature validation — spoofable
-- Post-call webhook signature verification is guarded by `if settings.elevenlabs_webhook_secret` — should be mandatory
-- Tool secret is a plain string with no rotation mechanism
-- Operator role not scoped to specific restaurants (can access any)
-- No login attempt tracking / brute-force protection
+## Tool Policy
 
-### Data
+Tools are defined server-side and exposed to the model at session level.
 
-- Confirmation codes are sequential and predictable (`TM-032801`, `TM-032802`) — enumerable
-- Confirmation code generation has only 1 collision retry — race condition under concurrent load
-- Heatmap analytics use UTC timestamps instead of restaurant local timezone
-- `ElevenLabs` API errors are silently swallowed — dashboard shows stale call data with no warning
+Read tools:
 
-### UX / Dashboard
+- `check_availability`
+- `find_booking`
 
-- No pagination on Calls or Bookings pages — loads all records at once
-- Heatmap requires `min-w-[640px]` — broken on mobile
-- `window.confirm()` used for destructive actions (cancel, delete)
-- Call sync (`sync_recent_calls_from_elevenlabs`) fires on every GET `/calls` — slow and fragile
-- No per-section error boundaries — one API failure crashes entire page
-- No optimistic updates on status toggles
+Write tools:
 
-### ElevenLabs Agent Behavior
+- `create_booking`
+- `modify_booking`
+- `cancel_booking`
 
-- Agent was reading confirmation codes aloud — fixed in system prompt
-- Agent was asking for phone number — fixed (use `{{caller_phone}}` dynamic variable)
-- Agent was not ending call after goodbye — fixed with CHIUSURA section
-- Agent was saying the full year ("duemilaventisei") — fixed with "Mai dire l'anno nelle date"
-- Agent was asking about allergies/notes proactively — fixed with DIVIETI section
+Escalation:
 
-## Repo Shape
+- `escalate_to_human`
 
-### Backend
+Important:
 
-- `backend/app/main.py` — entrypoint, middleware, readiness, router registration
-- `backend/app/api/` — HTTP boundaries
-- `backend/app/services/` — business logic
-- `backend/app/models/entities.py` — ORM source of truth
-- `backend/app/core/` — config, database, security, observability, rate limiting
-- `backend/alembic/` — migrations
-- `backend/tests/` — backend test suite (95 tests)
+- write tools are blocked server-side unless the last assistant turn was a confirmation request and the user then explicitly confirmed
+- the model should call escalation only when needed: caller request, large groups, allergies/out-of-policy requests, repeated unclear audio, repeated tool failure, or unresolved long calls
+- the caller phone is injected by the backend, not trusted from model arguments
+- booking writes still use the existing booking engine and database logic
 
-### Dashboard
+## Live Config Surface
 
-- `dashboard/app/` — route screens
-- `dashboard/components/workspace-provider.tsx` — current restaurant and session orchestration
-- `dashboard/components/login-form.tsx` — auth entrypoint
-- `dashboard/lib/api.ts` — fetch wrapper with timeouts and cookie credentials
-- `dashboard/lib/types.ts` — TypeScript contracts mirroring backend payload shapes
+The operator can change live agent behavior without code deploys from `/studio`.
 
-### Operations
+Persisted per restaurant:
 
-- `scripts/production_smoke_test.py` — repeatable live deployment check
-- `scripts/generate_secrets.py` — local secret bootstrap helper
+- prompt override
+- model
+- voice
+- tool choice mode
+- max response tokens
+- VAD tuning
+- transcription settings
+- tracing
+- truncation settings
 
-## Rules Future LLMs Should Preserve
+These settings are stored in `restaurants.openai_prompt_override` and `restaurants.openai_realtime_settings`.
 
-- Keep business rules in backend services, not in the dashboard.
-- Keep backend-owned auth.
-- Preserve owner/operator role separation.
-- Preserve the seeded local demo path unless replacing it with an equally runnable local bootstrap.
-- Use Alembic for schema changes — never `AUTO_CREATE_SCHEMA=true` in production.
-- Keep ElevenLabs server tools on shared-secret header auth and post-call webhooks on signature verification.
-- Keep Twilio inbound voice routing on `POST /api/twilio/inbound` — not the dead legacy ElevenLabs URL.
-- Keep Twilio emergency fallback on `POST /api/twilio/voice-fallback`.
-- Treat the current live environment as staging unless documentation is deliberately updated.
-- Never break the 95 passing tests.
+The studio now also shows:
 
-## Deployment Reality That Matters
+- live-readiness checks for env and restaurant wiring
+- prompt diagnostics based on current Realtime prompting recommendations
+- config diff versus system defaults
+- scenario presets for fast regression testing
+- a multi-scenario simulation suite for quick prompt/config checks
 
-- frontend API URL (`NEXT_PUBLIC_API_BASE_URL`) is build-time critical for Next.js — wrong at build = bad target shipped
-- Cloud Run source deploy uses `Dockerfile` if present in source directory
-- if a Cloud Run service previously used buildpacks, switching requires `--clear-base-image`
-- on Cloud Run default `*.run.app` domains, `/healthz` is intercepted before reaching the app — use `/health` and `/readyz`
-- there has already been schema/API drift in this workspace around restaurant AI settings — before changing those fields, verify the live Alembic version, latest migration file, and current ORM model together
-- `PII_ENCRYPTION_KEY` must stay stable — changing it makes historical encrypted data unreadable
+## Debugging Strategy
 
-## Verification Standard
+When the phone agent behaves badly, check in this order:
 
-Before claiming significant changes are done, run:
+1. `/studio` saved config
+2. backend logs
+3. `call_logs.extra_data.tool_events`
+4. `call_logs.transcript_preview`
+5. OpenAI traces for the session
 
-```bash
-cd backend && uv run ruff check app tests
-cd backend && uv run pytest
-cd dashboard && npm run build
-```
-
-For live deployment claims, also run:
-
-```bash
-FRONTEND_URL=https://ristorante-ai-dashboard-jc7mvuujwq-ew.a.run.app \
-BACKEND_URL=https://ristorante-ai-api-jc7mvuujwq-ew.a.run.app \
-OWNER_EMAIL=owner@trattoriamadonnina.it \
-OWNER_PASSWORD=<password> \
-python3 scripts/production_smoke_test.py
-```
+The app should be debugged from the backend and database first, not from any external agent console.

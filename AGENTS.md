@@ -8,7 +8,7 @@ Ristorante AI is an AI phone receptionist and restaurant operations dashboard fo
 
 The repo exists to prove the full loop:
 
-- ElevenLabs and Twilio call context entering the backend
+- Twilio and OpenAI Realtime call context entering the backend
 - real reservation logic against restaurant capacity rules
 - owner/operator dashboard workflows against the same source of truth
 
@@ -21,6 +21,7 @@ Read these in order:
 3. `docs/ARCHITECTURE.md`
 4. `docs/OPERATIONS.md`
 5. `docs/INTEGRATIONS.md`
+6. `docs/OPENAI_REALTIME_READINESS.md`
 
 Then verify the repo state:
 
@@ -30,13 +31,17 @@ Then verify the repo state:
 
 ## Current Ground Truth
 
-As of `2026-03-25`:
+As of `2026-04-07`:
 
 - backend is deployed to Cloud Run
 - frontend is deployed to Cloud Run
 - database is Supabase Postgres
-- live schema is Alembic `0004 (head)`
+- live migration target in the repo is Alembic `0011 (head)`
 - current public environment is live staging, not final public production
+- local verification baseline is:
+  - `cd backend && uv run ruff check app tests`
+  - `cd backend && uv run pytest`
+  - `cd dashboard && npm run build`
 
 ## Codebase Map
 
@@ -63,9 +68,9 @@ As of `2026-03-25`:
 
 ## Important Constraints
 
-- Keep ElevenLabs server tools on shared-secret header auth, not HMAC.
-- Keep ElevenLabs post-call webhooks on HMAC signature verification.
+- Keep tool endpoints on shared-secret header auth.
 - Keep owner/operator role separation intact.
+- Keep the OpenAI Realtime prompt and session config editable from the operator studio rather than hard-coded only in source.
 - Do not remove the runnable local demo flow unless you replace it with an equally usable bootstrap.
 - Do not bypass Alembic for production schema changes.
 - On Cloud Run default `*.run.app` domains, use `/health` and `/readyz` for public checks. `/healthz` is present in the app but intercepted before the request reaches the service.

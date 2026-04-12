@@ -21,7 +21,7 @@ def seed_demo_data(db: Session) -> None:
         slug="trattoria-da-mario",
         name="Trattoria da Mario",
         twilio_phone="+390212345678",
-        elevenlabs_agent_id="agent_demo_mario",
+        voice_provider="openai_realtime",
         timezone="Europe/Rome",
         address="Via Roma 42, 20121 Milano",
         opening_hours={"lunch": "12:00-15:00", "dinner": "19:00-23:30"},
@@ -110,7 +110,9 @@ def seed_demo_data(db: Session) -> None:
     call_logs = [
         CallLog(
             restaurant_id=restaurant.id,
-            elevenlabs_conversation_id="conv_demo_1",
+            voice_provider="openai_realtime",
+            provider_call_id="rt_demo_1",
+            twilio_call_sid="CA_demo_1",
             caller_phone_hash="demohash1",
             started_at=now - timedelta(hours=2),
             duration_seconds=127,
@@ -122,7 +124,9 @@ def seed_demo_data(db: Session) -> None:
         ),
         CallLog(
             restaurant_id=restaurant.id,
-            elevenlabs_conversation_id="conv_demo_2",
+            voice_provider="openai_realtime",
+            provider_call_id="rt_demo_2",
+            twilio_call_sid="CA_demo_2",
             caller_phone_hash="demohash2",
             started_at=now - timedelta(hours=5),
             duration_seconds=84,
@@ -133,7 +137,9 @@ def seed_demo_data(db: Session) -> None:
         ),
         CallLog(
             restaurant_id=restaurant.id,
-            elevenlabs_conversation_id="conv_demo_3",
+            voice_provider="openai_realtime",
+            provider_call_id="rt_demo_3",
+            twilio_call_sid="CA_demo_3",
             caller_phone_hash="demohash3",
             started_at=now - timedelta(days=1, hours=1),
             duration_seconds=92,

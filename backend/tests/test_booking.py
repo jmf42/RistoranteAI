@@ -22,7 +22,7 @@ def test_create_booking_via_dashboard(client):
         "/api/bookings",
         json={
             "restaurant_id": restaurant_id,
-            "date": (date.today() + timedelta(days=3)).isoformat(),
+            "date": _next_non_monday(days_ahead=3).isoformat(),
             "time": "20:00:00",
             "party_size": 3,
             "customer_name": "Verdi",

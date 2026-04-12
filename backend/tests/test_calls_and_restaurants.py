@@ -1,94 +1,36 @@
 from __future__ import annotations
 
 from datetime import UTC, date, datetime
-from types import SimpleNamespace
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 
-import app.api.calls as calls_api
-import app.api.webhooks as webhooks_api
-from app.integrations.elevenlabs import SyncResult, elevenlabs_service
-from app.models import Booking, CallLog, RawWebhookEvent, Restaurant
-from app.schemas.common import RawWebhookEventStatus
-from app.services.call_logs import (
-    WEBHOOK_SOURCE_ELEVENLABS_POST_CALL,
-    process_webhook_event,
-)
+from app.core.config import settings
+from app.models import Booking, CallLog, Restaurant
 from tests.conftest import login
 
 
-def test_transcript_endpoint_returns_local_preview_when_remote_unavailable(client, db_session, monkeypatch):
+def test_transcript_endpoint_returns_local_openai_transcript(client, db_session):
     login(client)
-    call = db_session.scalar(select(CallLog).where(CallLog.elevenlabs_conversation_id == "conv_demo_1"))
-
-    monkeypatch.setattr(elevenlabs_service, "fetch_conversation_transcript", lambda _: None)
+    call = db_session.scalar(select(CallLog).where(CallLog.provider_call_id == "rt_demo_1"))
 
     response = client.get(f"/api/calls/{call.id}/transcript")
     assert response.status_code == 200
     payload = response.json()
-    assert payload["source"] == "local-preview"
+    assert payload["source"] == "openai_realtime"
     assert "Vorrei un tavolo" in payload["transcript"]
 
 
-def test_transcript_endpoint_uses_selected_restaurant_for_operator_access(client, db_session, monkeypatch):
-    login(client, email="operator@ristorante.ai")
-    second_restaurant = Restaurant(
-        slug="osteria-notturna",
-        name="Osteria Notturna",
-        address="Via Po 10, Torino",
-        timezone="Europe/Rome",
-        turni=[{"name": "serale", "start": "20:00", "end": "23:00", "max_covers": 24}],
-        booking_rules={
-            "min_party": 1,
-            "max_party": 10,
-            "large_group_threshold": 6,
-            "max_advance_days": 30,
-            "min_lead_hours": 2,
-        },
-    )
-    db_session.add(second_restaurant)
-    db_session.flush()
-    call = CallLog(
-        restaurant_id=second_restaurant.id,
-        elevenlabs_conversation_id="conv_remote_operator",
-        started_at=datetime.now(UTC),
-        duration_seconds=65,
-        outcome="info_provided",
-        summary="Chiamata di prova per operatore.",
-        transcript_preview="Preview locale di fallback.",
-        extra_data={},
-    )
-    db_session.add(call)
-    db_session.commit()
-
-    monkeypatch.setattr(
-        elevenlabs_service,
-        "fetch_conversation_transcript",
-        lambda _: {
-            "transcript": "User: Buonasera.\nAgent: Benvenuti.",
-            "analysis": {"transcript_summary": "Transcript remoto completo."},
-            "status": "done",
-            "metadata": {"called_number": "+390111111111"},
-        },
-    )
-
-    response = client.get(f"/api/calls/{call.id}/transcript?restaurant_id={second_restaurant.id}")
+def test_current_restaurant_includes_voice_provider(client):
+    login(client)
+    response = client.get("/api/restaurants/current")
     assert response.status_code == 200
     payload = response.json()
-    assert payload["source"] == "elevenlabs"
-    assert payload["summary"] == "Transcript remoto completo."
-    assert "Benvenuti" in payload["transcript"]
+    assert payload["voice_provider"] == "openai_realtime"
 
 
-def test_owner_settings_update_returns_sync_status(client, db_session, monkeypatch):
+def test_owner_settings_update_returns_local_status_message(client, db_session):
     login(client)
     restaurant = db_session.scalar(select(Restaurant).where(Restaurant.slug == "trattoria-da-mario"))
-
-    monkeypatch.setattr(
-        elevenlabs_service,
-        "sync_restaurant_config",
-        lambda _: SyncResult(synced=True, message="ElevenLabs agent synced successfully: display name updated."),
-    )
 
     response = client.patch(
         f"/api/restaurants/{restaurant.id}",
@@ -98,17 +40,12 @@ def test_owner_settings_update_returns_sync_status(client, db_session, monkeypat
     payload = response.json()
     assert payload["name"] == "Trattoria da Mario Nuova"
     assert payload["sync_status"]["synced"] is True
+    assert "OpenAI" in payload["sync_status"]["message"]
 
 
-def test_owner_can_update_assistant_settings(client, db_session, monkeypatch):
+def test_owner_can_update_assistant_settings(client, db_session):
     login(client)
     restaurant = db_session.scalar(select(Restaurant).where(Restaurant.slug == "trattoria-da-mario"))
-
-    monkeypatch.setattr(
-        elevenlabs_service,
-        "sync_restaurant_config",
-        lambda _: SyncResult(synced=True, message="Agent verified."),
-    )
 
     response = client.patch(
         f"/api/restaurants/{restaurant.id}",
@@ -121,30 +58,6 @@ def test_owner_can_update_assistant_settings(client, db_session, monkeypatch):
     payload = response.json()
     assert payload["custom_greeting"] == "Buonasera, risponde il desk prenotazioni."
     assert payload["agent_style_notes"] == "Elegant and direct."
-
-
-def test_personalization_includes_assistant_settings(client, db_session):
-    restaurant = db_session.scalar(select(Restaurant).where(Restaurant.slug == "trattoria-da-mario"))
-    restaurant.custom_greeting = "Buonasera, benvenuti da Mario."
-    restaurant.agent_style_notes = "Elegant and direct."
-    db_session.add(restaurant)
-    db_session.commit()
-
-    response = client.post(
-        "/api/integrations/elevenlabs/twilio-personalization",
-        headers={"X-Ristorante-Tool-Secret": "local-tool-secret"},
-        json={
-            "caller_id": "+393331234567",
-            "agent_id": restaurant.elevenlabs_agent_id,
-            "called_number": restaurant.twilio_phone,
-            "call_sid": "CA-demo"
-        },
-    )
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["dynamic_variables"]["agent_style_notes"] == "Elegant and direct."
-    assert payload["dynamic_variables"]["greeting"] == "Buonasera, benvenuti da Mario."
-    assert payload.get("conversation_config_override") is None
 
 
 def test_operator_can_pause_and_reactivate_restaurant_without_sync(client, db_session):
@@ -175,6 +88,7 @@ def test_operator_duplicate_restaurant_slug_returns_conflict(client):
             "name": "Duplicate",
             "address": "Via Test 1",
             "timezone": "Europe/Rome",
+            "voice_provider": "openai_realtime",
             "opening_hours": {"lunch": "12:00-15:00"},
             "weekly_closures": [],
             "closure_dates": [],
@@ -225,8 +139,10 @@ def test_tool_create_booking_missing_restaurant_returns_not_found(client):
             "customer_phone": "+393331111111",
         },
     )
-    assert response.status_code == 404
-    assert response.json()["detail"] == "Restaurant not found"
+    assert response.status_code == 200
+    data = response.json()
+    assert data["success"] is False
+    assert "ristorante" in data["reason"].lower()
 
 
 def test_bookings_list_handles_legacy_unreadable_pii_without_crashing(client, db_session):
@@ -250,7 +166,6 @@ def test_bookings_list_handles_legacy_unreadable_pii_without_crashing(client, db
     assert response.status_code == 200
     payload = response.json()
     assert payload[0]["customer_name"] == "Dato non disponibile"
-    # Phone is masked in list views; fallback text has no digits → "****"
     assert payload[0]["customer_phone"] == "****"
 
 
@@ -273,6 +188,41 @@ def test_twilio_voice_fallback_returns_italian_dial_flow_for_known_restaurant(cl
     assert f"<Dial>{restaurant.escalation_phone}</Dial>" in body
 
 
+def test_twilio_voice_fallback_routes_human_when_digit_one_pressed(client, db_session):
+    restaurant = db_session.scalar(select(Restaurant).where(Restaurant.slug == "trattoria-da-mario"))
+    response = client.post(
+        "/api/twilio/voice-fallback",
+        data={
+            "Called": restaurant.twilio_phone,
+            "From": "+41779802809",
+            "Digits": "1",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.text
+    assert "La metto subito in contatto con il ristorante." in body
+    assert f"<Dial>{restaurant.escalation_phone}</Dial>" in body
+
+
+def test_twilio_voice_fallback_accepts_called_number_without_plus(client, db_session):
+    restaurant = db_session.scalar(select(Restaurant).where(Restaurant.slug == "trattoria-da-mario"))
+    restaurant.twilio_phone = "+41225394205"
+    db_session.add(restaurant)
+    db_session.commit()
+
+    response = client.post(
+        "/api/twilio/voice-fallback",
+        data={
+            "Called": "41225394205",
+            "From": "+41779802809",
+        },
+    )
+
+    assert response.status_code == 200
+    assert f"<Dial>{restaurant.escalation_phone}</Dial>" in response.text
+
+
 def test_twilio_voice_fallback_hangs_up_for_unknown_restaurant(client):
     response = client.post(
         "/api/twilio/voice-fallback",
@@ -288,22 +238,15 @@ def test_twilio_voice_fallback_hangs_up_for_unknown_restaurant(client):
     assert "<Hangup/>" in body
 
 
-def test_twilio_inbound_registers_real_ai_call(client, db_session, monkeypatch):
+def test_twilio_inbound_returns_openai_media_stream_twiml(client, db_session, monkeypatch):
     restaurant = db_session.scalar(select(Restaurant).where(Restaurant.slug == "trattoria-da-mario"))
     restaurant.twilio_phone = "+41225394205"
-    restaurant.elevenlabs_agent_id = "agent_9801kmkb15jhfnn8m2k99kqb3wps"
-    restaurant.custom_greeting = "Buonasera, test Supabase."
+    restaurant.voice_provider = "openai_realtime"
+    restaurant.custom_greeting = "Buonasera, test realtime."
     restaurant.agent_style_notes = "Supabase QA run."
+    monkeypatch.setattr(settings, "public_base_url", "https://api.example.com")
     db_session.add(restaurant)
     db_session.commit()
-
-    captured = {}
-
-    def fake_register_twilio_call(**kwargs):
-        captured.update(kwargs)
-        return "<?xml version=\"1.0\" encoding=\"UTF-8\"?><Response><Connect /></Response>"
-
-    monkeypatch.setattr(elevenlabs_service, "register_twilio_call", fake_register_twilio_call)
 
     response = client.post(
         "/api/twilio/inbound",
@@ -316,29 +259,40 @@ def test_twilio_inbound_registers_real_ai_call(client, db_session, monkeypatch):
 
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("application/xml")
-    assert "<Connect" in response.text
-    assert captured["agent_id"] == "agent_9801kmkb15jhfnn8m2k99kqb3wps"
-    assert captured["from_number"] == "+41779802809"
-    assert captured["to_number"] == "+41225394205"
-    client_data = captured["conversation_initiation_client_data"]
-    assert client_data["type"] == "conversation_initiation_client_data"
-    assert client_data["dynamic_variables"]["restaurant_name"] == "Trattoria da Mario"
-    assert "greeting" in client_data["dynamic_variables"]
+    body = response.text
+    assert "<Gather" not in body
+    assert "<Connect>" in body
+    assert "<Stream" in body
+    assert "twilio/media-stream" in body
+    assert "<Parameter name=\"token\"" in body
+    assert 'statusCallback="https://api.example.com/api/twilio/status"' in body
 
 
-def test_twilio_inbound_falls_back_when_register_call_fails(client, db_session, monkeypatch):
+def test_twilio_inbound_accepts_to_number_without_plus(client, db_session, monkeypatch):
     restaurant = db_session.scalar(select(Restaurant).where(Restaurant.slug == "trattoria-da-mario"))
     restaurant.twilio_phone = "+41225394205"
-    restaurant.elevenlabs_agent_id = "agent_9801kmkb15jhfnn8m2k99kqb3wps"
+    restaurant.voice_provider = "openai_realtime"
+    monkeypatch.setattr(settings, "public_base_url", "https://api.example.com")
     db_session.add(restaurant)
     db_session.commit()
 
-    monkeypatch.setattr(
-        elevenlabs_service,
-        "register_twilio_call",
-        lambda **_: (_ for _ in ()).throw(RuntimeError("boom")),
+    response = client.post(
+        "/api/twilio/inbound",
+        data={
+            "From": "+41779802809",
+            "To": "41225394205",
+            "CallSid": "CA_test_without_plus",
+        },
     )
 
+    assert response.status_code == 200
+    body = response.text
+    assert "<Connect>" in body
+    assert "<Stream" in body
+    assert "Ci scusi, stiamo avendo un problema tecnico" not in body
+
+
+def test_twilio_inbound_falls_back_when_restaurant_is_missing(client):
     response = client.post(
         "/api/twilio/inbound",
         data={
@@ -352,210 +306,181 @@ def test_twilio_inbound_falls_back_when_register_call_fails(client, db_session, 
     assert "Ci scusi, stiamo avendo un problema tecnico" in response.text
 
 
-def test_elevenlabs_webhook_stores_verified_payload_and_returns_200(client, db_session, monkeypatch):
-    restaurant = db_session.scalar(select(Restaurant).where(Restaurant.slug == "trattoria-da-mario"))
-    assert restaurant is not None
-    payload = {
-        "conversation_id": "conv_webhook_store_only",
-        "agent_id": restaurant.elevenlabs_agent_id,
-        "status": "done",
-        "call_successful": "success",
-        "analysis": {"transcript_summary": "Chiamata completata."},
-        "metadata": {
-            "agent_id": restaurant.elevenlabs_agent_id,
-            "called_number": restaurant.twilio_phone,
-            "caller_id": "+41779802809",
-            "start_time_unix_secs": 1774706210,
-            "call_duration_secs": 66,
-        },
-        "transcript": [{"role": "agent", "message": "Buonasera."}],
-    }
-
-    monkeypatch.setattr(
-        elevenlabs_service,
-        "verify_webhook",
-        lambda raw_payload, signature: SimpleNamespace(data=payload),
+def test_twilio_status_callback_records_stream_errors(client, db_session):
+    call = CallLog(
+        restaurant_id=db_session.scalar(select(Restaurant.id).where(Restaurant.slug == "trattoria-da-mario")),
+        voice_provider="openai_realtime",
+        provider_call_id="rt_stream_error",
+        twilio_call_sid="CA_stream_error",
+        started_at=datetime.now(UTC),
+        duration_seconds=0,
+        outcome="info_provided",
+        call_status="unknown",
+        summary="",
+        transcript_preview="",
+        extra_data={},
     )
-    monkeypatch.setattr(webhooks_api, "process_webhook_event_now", lambda *_: True)
-
-    response = client.post(
-        "/api/webhooks/elevenlabs/post-call",
-        headers={"elevenlabs-signature": "sig_test"},
-        json={"data": payload},
-    )
-
-    assert response.status_code == 200
-    stored_event = db_session.scalar(
-        select(RawWebhookEvent).where(RawWebhookEvent.event_key == "conv_webhook_store_only")
-    )
-    assert stored_event is not None
-    assert stored_event.source == WEBHOOK_SOURCE_ELEVENLABS_POST_CALL
-    assert stored_event.status == RawWebhookEventStatus.pending
-    assert stored_event.raw_payload["conversation_id"] == "conv_webhook_store_only"
-    stored_call = db_session.scalar(
-        select(CallLog).where(CallLog.elevenlabs_conversation_id == "conv_webhook_store_only")
-    )
-    assert stored_call is None
-
-
-def test_elevenlabs_webhook_duplicate_delivery_is_idempotent(client, db_session, monkeypatch):
-    restaurant = db_session.scalar(select(Restaurant).where(Restaurant.slug == "trattoria-da-mario"))
-    assert restaurant is not None
-    payload = {
-        "conversation_id": "conv_duplicate_webhook",
-        "agent_id": restaurant.elevenlabs_agent_id,
-        "status": "done",
-        "call_successful": "success",
-        "analysis": {"transcript_summary": "Prenotazione completata."},
-        "metadata": {
-            "agent_id": restaurant.elevenlabs_agent_id,
-            "called_number": restaurant.twilio_phone,
-            "caller_id": "+41779802809",
-            "start_time_unix_secs": 1774706210,
-            "call_duration_secs": 66,
-        },
-        "transcript": [{"role": "agent", "message": "Buonasera."}],
-    }
-
-    monkeypatch.setattr(
-        elevenlabs_service,
-        "verify_webhook",
-        lambda raw_payload, signature: SimpleNamespace(data=payload),
-    )
-    monkeypatch.setattr(webhooks_api, "process_webhook_event_now", lambda *_: True)
-
-    first = client.post(
-        "/api/webhooks/elevenlabs/post-call",
-        headers={"elevenlabs-signature": "sig_test"},
-        json={"data": payload},
-    )
-    second = client.post(
-        "/api/webhooks/elevenlabs/post-call",
-        headers={"elevenlabs-signature": "sig_test"},
-        json={"data": payload},
-    )
-    assert first.status_code == 200
-    assert second.status_code == 200
-
-    event_count = db_session.scalar(
-        select(func.count())
-        .select_from(RawWebhookEvent)
-        .where(RawWebhookEvent.event_key == "conv_duplicate_webhook")
-    )
-    assert event_count == 1
-    event = db_session.scalar(
-        select(RawWebhookEvent).where(RawWebhookEvent.event_key == "conv_duplicate_webhook")
-    )
-    assert event is not None
-    assert process_webhook_event(db_session, event=event, request_id="test-duplicate") is True
-    call_count = db_session.scalar(
-        select(func.count())
-        .select_from(CallLog)
-        .where(CallLog.elevenlabs_conversation_id == "conv_duplicate_webhook")
-    )
-    assert call_count == 1
-
-
-def test_calls_list_reads_local_db_only(client, monkeypatch):
-    login(client)
-    monkeypatch.setattr(
-        calls_api,
-        "sync_recent_calls_from_elevenlabs",
-        lambda **_: (_ for _ in ()).throw(AssertionError("sync should not run on GET /api/calls")),
-    )
-
-    response = client.get("/api/calls")
-    assert response.status_code == 200
-    assert len(response.json()) >= 1
-
-
-def test_call_sync_endpoint_replays_pending_events_and_backfills_missing_calls(
-    client, db_session, monkeypatch
-):
-    login(client)
-    restaurant = db_session.scalar(select(Restaurant).where(Restaurant.slug == "trattoria-da-mario"))
-    assert restaurant is not None
-    raw_event = RawWebhookEvent(
-        source=WEBHOOK_SOURCE_ELEVENLABS_POST_CALL,
-        event_key="conv_pending_replay",
-        status=RawWebhookEventStatus.pending,
-        raw_payload={
-            "conversation_id": "conv_pending_replay",
-            "agent_id": restaurant.elevenlabs_agent_id,
-            "status": "done",
-            "call_successful": "failure",
-            "transcript": "Tool failed while creating reservation.",
-            "analysis": {"transcript_summary": "La prenotazione non è andata a buon fine."},
-            "metadata": {
-                "agent_id": restaurant.elevenlabs_agent_id,
-                "called_number": restaurant.twilio_phone,
-                "caller_id": "+41779802809",
-                "start_time_unix_secs": 1774706210,
-                "call_duration_secs": 45,
-            },
-        },
-    )
-    db_session.add(raw_event)
+    db_session.add(call)
     db_session.commit()
 
-    monkeypatch.setattr(
-        elevenlabs_service,
-        "list_recent_conversations",
-        lambda **_: [
-            {
-                "conversation_id": "conv_tool_error",
-                "conversation_initiation_source": "twilio",
-                "direction": "inbound",
-            }
-        ],
-    )
-    monkeypatch.setattr(
-        elevenlabs_service,
-        "fetch_conversation",
-        lambda conversation_id: {
-            "conversation_id": conversation_id,
-            "agent_id": restaurant.elevenlabs_agent_id,
-            "status": "done",
-            "call_successful": "failure",
-            "transcript": "Tool failed while creating reservation.",
-            "analysis": {"transcript_summary": "La prenotazione non è andata a buon fine."},
-            "metadata": {
-                "start_time_unix_secs": 1774706210,
-                "call_duration_secs": 45,
-                "phone_call": {
-                    "direction": "inbound",
-                    "agent_number": restaurant.twilio_phone,
-                    "external_number": "+41779802809",
-                },
-            },
-            "conversation_initiation_client_data": {
-                "dynamic_variables": {
-                    "restaurant_id": restaurant.id,
-                    "called_number": restaurant.twilio_phone,
-                    "caller_phone": "+41779802809",
-                }
-            },
+    response = client.post(
+        "/api/twilio/status",
+        data={
+            "CallSid": "CA_stream_error",
+            "StreamSid": "MZ123",
+            "StreamEvent": "stream-error",
+            "StreamError": "websocket closed",
         },
     )
 
+    assert response.status_code == 200
+    db_session.refresh(call)
+    assert call.call_status == "failed"
+    assert call.extra_data["twilio_stream_event"] == "stream-error"
+    assert call.extra_data["twilio_stream_error"] == "websocket closed"
+
+
+def test_twilio_stream_status_without_call_status_preserves_existing_status(client, db_session):
+    call = CallLog(
+        restaurant_id=db_session.scalar(select(Restaurant.id).where(Restaurant.slug == "trattoria-da-mario")),
+        voice_provider="openai_realtime",
+        provider_call_id="rt_stream_completed",
+        twilio_call_sid="CA_stream_completed",
+        started_at=datetime.now(UTC),
+        duration_seconds=12,
+        outcome="booking_created",
+        call_status="successful",
+        summary="Chiamata completata.",
+        transcript_preview="Preview locale.",
+        extra_data={},
+    )
+    db_session.add(call)
+    db_session.commit()
+
+    response = client.post(
+        "/api/twilio/status",
+        data={
+            "CallSid": "CA_stream_completed",
+            "StreamSid": "MZ456",
+            "StreamEvent": "stream-stopped",
+        },
+    )
+
+    assert response.status_code == 200
+    db_session.refresh(call)
+    assert call.call_status == "successful"
+    assert call.extra_data["twilio_stream_event"] == "stream-stopped"
+
+
+def test_calls_list_reads_local_db_only(client):
+    login(client)
+    response = client.get("/api/calls")
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload) >= 1
+    assert payload[0]["voice_provider"] == "openai_realtime"
+
+
+def test_calls_list_supports_search_attention_and_sort(client, db_session):
+    login(client)
+    restaurant = db_session.scalar(select(Restaurant).where(Restaurant.slug == "trattoria-da-mario"))
+
+    long_call = CallLog(
+        restaurant_id=restaurant.id,
+        voice_provider="openai_realtime",
+        provider_call_id="rt_longest",
+        twilio_call_sid="CA_longest",
+        started_at=datetime.now(UTC),
+        duration_seconds=420,
+        outcome="info_provided",
+        call_status="successful",
+        summary="Cliente chiede informazioni su un compleanno.",
+        transcript_preview="Servono dettagli per un compleanno sabato.",
+        extra_data={},
+    )
+    follow_up_call = CallLog(
+        restaurant_id=restaurant.id,
+        voice_provider="openai_realtime",
+        provider_call_id="rt_followup",
+        twilio_call_sid="CA_followup",
+        started_at=datetime.now(UTC),
+        duration_seconds=35,
+        outcome="tool_error",
+        call_status="failed",
+        summary="Errore tecnico durante la richiesta.",
+        transcript_preview="Il tool availability non ha risposto.",
+        extra_data={},
+    )
+    db_session.add_all([long_call, follow_up_call])
+    db_session.commit()
+
+    search_response = client.get("/api/calls", params={"search": "compleanno"})
+    assert search_response.status_code == 200
+    search_payload = search_response.json()
+    assert search_payload
+    assert all(
+        "compleanno" in f"{item['summary']} {item.get('transcript_preview') or ''}".lower()
+        for item in search_payload
+    )
+
+    attention_response = client.get("/api/calls", params={"attention_only": "true"})
+    assert attention_response.status_code == 200
+    attention_payload = attention_response.json()
+    assert attention_payload
+    assert all(
+        item["call_status"] == "failed" or item["outcome"] in {"tool_error", "abandoned"}
+        for item in attention_payload
+    )
+
+    longest_response = client.get("/api/calls", params={"sort": "longest"})
+    assert longest_response.status_code == 200
+    longest_payload = longest_response.json()
+    assert longest_payload[0]["provider_call_id"] == "rt_longest"
+
+    follow_up_response = client.get("/api/calls", params={"sort": "follow_up"})
+    assert follow_up_response.status_code == 200
+    follow_up_payload = follow_up_response.json()
+    assert follow_up_payload[0]["provider_call_id"] == "rt_followup"
+
+
+def test_owner_agenda_returns_seven_day_turno_board(client, db_session):
+    login(client)
+    restaurant = db_session.scalar(select(Restaurant).where(Restaurant.slug == "trattoria-da-mario"))
+    restaurant.weekly_closures = ["monday"]
+    restaurant.closure_dates = ["2099-12-31"]
+    db_session.add(restaurant)
+    db_session.commit()
+
+    response = client.get("/api/owner/agenda", params={"days": 7})
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["restaurant_id"] == restaurant.id
+    assert len(payload["days"]) == 7
+    assert {"today_booked_covers", "today_calls", "today_unresolved_calls"} <= payload["summary"].keys()
+    assert payload["days"][0]["turni"]
+    first_turno = payload["days"][0]["turni"][0]
+    assert {
+        "turno",
+        "booked_covers",
+        "booking_count",
+        "max_covers",
+        "remaining_covers",
+        "occupancy_ratio",
+        "fullness",
+    } <= first_turno.keys()
+
+
+def test_call_sync_endpoint_returns_local_noop_counts(client):
+    login(client)
     response = client.post("/api/calls/sync")
     assert response.status_code == 200
     payload = response.json()
-    assert payload["replayed_events"] == 1
-    assert payload["failed_events"] == 0
-    assert payload["backfilled_calls"] == 1
-
-    replayed = db_session.scalar(
-        select(CallLog).where(CallLog.elevenlabs_conversation_id == "conv_pending_replay")
-    )
-    assert replayed is not None
-    assert replayed.outcome == "tool_error"
-
-    synced = db_session.scalar(
-        select(CallLog).where(CallLog.elevenlabs_conversation_id == "conv_tool_error")
-    )
-    assert synced is not None
-    assert synced.outcome == "tool_error"
+    assert payload == {
+        "replayed_events": 0,
+        "failed_events": 0,
+        "pending_events": 0,
+        "backfilled_calls": 0,
+    }
 
 
 def test_call_sync_endpoint_is_owner_only(client):
@@ -564,35 +489,34 @@ def test_call_sync_endpoint_is_owner_only(client):
     assert response.status_code == 403
 
 
-def test_call_sync_endpoint_marks_failed_events_with_error(client, db_session, monkeypatch):
-    login(client)
-    db_session.add(
-        RawWebhookEvent(
-            source=WEBHOOK_SOURCE_ELEVENLABS_POST_CALL,
-            event_key="conv_missing_restaurant",
-            status=RawWebhookEventStatus.pending,
-            raw_payload={
-                "conversation_id": "conv_missing_restaurant",
-                "agent_id": "agent_missing",
-                "metadata": {
-                    "agent_id": "agent_missing",
-                    "called_number": "+390000000000",
-                    "start_time_unix_secs": 1774706210,
-                },
-            },
-        )
+def test_status_callback_marks_call_failed(client, db_session):
+    restaurant = db_session.scalar(select(Restaurant).where(Restaurant.slug == "trattoria-da-mario"))
+    call = CallLog(
+        restaurant_id=restaurant.id,
+        voice_provider="openai_realtime",
+        provider_call_id="rt_status_test",
+        twilio_call_sid="CA_status_test",
+        started_at=datetime.now(UTC),
+        duration_seconds=10,
+        outcome="info_provided",
+        call_status="unknown",
+        summary="In corso.",
+        transcript_preview="Preview locale.",
+        extra_data={},
     )
+    db_session.add(call)
     db_session.commit()
-    monkeypatch.setattr(elevenlabs_service, "list_recent_conversations", lambda **_: [])
 
-    response = client.post("/api/calls/sync")
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["failed_events"] == 1
-
-    stored = db_session.scalar(
-        select(RawWebhookEvent).where(RawWebhookEvent.event_key == "conv_missing_restaurant")
+    response = client.post(
+        "/api/twilio/status",
+        data={
+            "CallSid": "CA_status_test",
+            "CallStatus": "failed",
+            "CallDuration": "14",
+        },
     )
-    assert stored is not None
-    assert stored.status == RawWebhookEventStatus.failed
-    assert stored.last_error == "Restaurant not found for webhook event"
+
+    assert response.status_code == 200
+    db_session.refresh(call)
+    assert call.call_status == "failed"
+    assert call.duration_seconds == 14

@@ -1,279 +1,162 @@
 # Integrations
 
-This file is the single source of truth for Twilio, ElevenLabs, and backend tool wiring.
+Last updated: `2026-04-10`
 
-## Telephony Architecture
+This file is the single source of truth for the live voice stack:
 
-The supported voice path is:
+- Twilio for PSTN phone numbers and media streams
+- OpenAI Realtime for voice + orchestration
+- backend server-side tools for booking actions
+- Supabase Postgres as the source of truth
 
-1. Twilio receives the call
-2. Twilio sends the inbound webhook to backend `POST /api/twilio/inbound`
-3. backend resolves the restaurant by `twilio_phone` and builds runtime personalization
-4. backend calls ElevenLabs `register_call`
-5. backend returns ElevenLabs-generated TwiML to Twilio
-6. Twilio connects the call to ElevenLabs
-7. ElevenLabs calls:
-   - personalization webhook (once, at call start)
-   - server tools (during conversation)
-   - post-call webhook (after call ends)
+## Supported Voice Path
+
+1. Twilio receives the inbound call.
+2. Twilio sends `POST /api/twilio/inbound` to the backend.
+3. The backend resolves the restaurant by `twilio_phone`.
+4. The backend creates a signed media-stream token and returns TwiML with:
+   - `<Connect><Stream .../></Connect>`
+   - stream target: `WS /api/twilio/media-stream`
+   - stream status callback: `POST /api/twilio/status`
+   - auth token passed as a Twilio `<Parameter>` value, not a query string
+5. The backend opens a server-side OpenAI Realtime WebSocket session.
+6. Caller audio is streamed from Twilio to OpenAI.
+7. Assistant audio is streamed from OpenAI back to Twilio.
+8. Tool calls stay server-side and execute against the booking engine and database.
+9. The backend persists transcript preview, tool events, outcome, and call status in `call_logs`.
 
 Emergency fallback:
 
 - `POST /api/twilio/voice-fallback`
 
-This is only for failure handling. It is not the main AI conversation path.
+This fallback is only for technical failure handling.
 
-## Important Rule
+## Backend Routes In Use
 
-Do not point Twilio at:
+### Telephony
 
-- `https://api.elevenlabs.io/v1/convai/twilio/inbound_call`
+- `POST /api/twilio/inbound`
+- `POST /api/twilio/status`
+- `POST /api/twilio/voice-fallback`
+- `WS /api/twilio/media-stream`
 
-That older manual target returned `404` during live debugging and caused the English "application error" failure heard by callers.
+### Booking Tools
+
+- `POST /api/tools/check-availability`
+- `POST /api/tools/create-booking`
+- `POST /api/tools/find-booking`
+- `POST /api/tools/modify-booking`
+- `POST /api/tools/cancel-booking`
+- `GET /api/tools/health`
+
+### Operator Voice Studio
+
+- `GET /api/studio/agent`
+- `POST /api/studio/tool-test`
+- `POST /api/studio/simulate`
+- `POST /api/studio/simulate-suite`
+- `PUT /api/studio/config`
+- `DELETE /api/studio/config`
+
+The studio is the platform-operator console for testing prompt, session config, and tool behavior before or during rollout.
+
+The current studio surface also exposes:
+
+- live-readiness checks
+- prompt diagnostics
+- config diff versus app defaults
+- scenario presets for common call flows
+- a batch simulation suite for quick regression sweeps after prompt/config changes
+
+## Runtime Secrets and Config
+
+### Required backend runtime
+
+- `OPENAI_API_KEY`
+- `TOOL_SECRET`
+- `PUBLIC_BASE_URL`
+- `TWILIO_ACCOUNT_SID`
+- `TWILIO_AUTH_TOKEN`
+
+### Optional backend tuning
+
+- `OPENAI_REALTIME_MODEL` default `gpt-realtime-1.5`
+- `OPENAI_REALTIME_VOICE` default `cedar`
+- `OPENAI_REALTIME_BASE_URL` default `wss://api.openai.com/v1/realtime?model=gpt-realtime-1.5`
+
+`PUBLIC_BASE_URL` must be the public backend origin Twilio can reach. It is used to generate the media-stream and status callback URLs.
+
+Important:
+- Twilio `<Stream url>` does not support query strings.
+- stream authentication is therefore passed through Twilio custom parameters and validated in the websocket bootstrap.
+
+## Tool Auth
+
+All tool endpoints use:
+
+- header: `X-Ristorante-Tool-Secret`
+- value: `TOOL_SECRET`
+
+Compatibility note:
+- `backend/app/core/config.py` still accepts `ELEVENLABS_TOOL_SECRET` as an alias for `TOOL_SECRET` so an existing secret can be reused during cutover.
+
+Health check:
+
+```bash
+curl -i http://127.0.0.1:8000/api/tools/health \
+  -H "X-Ristorante-Tool-Secret: local-tool-secret"
+```
+
+## OpenAI Realtime Session Shape
+
+The backend creates a GA Realtime session using server-side WebSocket orchestration and sends:
+
+- `model = gpt-realtime-1.5` or saved per-restaurant override
+- `audio.input.format = audio/pcmu` for Twilio G.711 mu-law
+- `audio.output.format = audio/pcmu`
+- `audio.input.transcription.model = gpt-4o-transcribe-latest`
+- `audio.input.turn_detection` (`server_vad` or `semantic_vad`)
+- optional `audio.input.noise_reduction`
+- server-side function tools dispatched on `response.output_item.done`
+- structured prompt sections
+- tracing enabled by default
+- `parallel_tool_calls = false`
+- no unsupported Realtime `strict` flag in tool schemas
+
+The studio can override and persist these values per restaurant.
+
+Human transfer policy:
+
+- the prompt treats transfer to the restaurant as a last resort
+- transfer is appropriate when the caller asks, the request is out of policy, a large group/allergy needs staff handling, audio remains unclear after targeted retries, or the technical/tool path cannot safely complete
+- normal missing booking details should be clarified by the AI agent, not transferred
 
 ## Twilio Console Values
 
+For the active phone number:
+
 ### A call comes in
 
-- `Webhook`
-- `https://ristorante-ai-api-jc7mvuujwq-ew.a.run.app/api/twilio/inbound`
-- `HTTP POST`
+- webhook URL: `https://<backend-domain>/api/twilio/inbound`
+- method: `HTTP POST`
 
 ### Primary handler fails
 
-- `Webhook`
-- `https://ristorante-ai-api-jc7mvuujwq-ew.a.run.app/api/twilio/voice-fallback`
-- `HTTP POST`
+- webhook URL: `https://<backend-domain>/api/twilio/voice-fallback`
+- method: `HTTP POST`
 
-### Call status changes
+Do not point Twilio directly at any external AI vendor URL.
 
-- `https://api.us.elevenlabs.io/twilio/status-callback`
-- `HTTP POST`
+## Operator Workflow
 
-## Personalization Webhook
+If you want to tune the live agent without editing code:
 
-Route:
+1. Open the dashboard as an operator.
+2. Go to `/studio`.
+3. Preview the effective prompt and session payload.
+4. Review readiness and prompt diagnostics before saving anything.
+5. Run tool tests against the real backend.
+6. Run text-mode simulations against Realtime.
+7. Save the prompt/session config to the restaurant record.
 
-- `POST /api/integrations/elevenlabs/twilio-personalization`
-
-Auth:
-
-- header: `X-Ristorante-Tool-Secret`
-- accepts either `ELEVENLABS_TOOL_SECRET` or `ELEVENLABS_PERSONALIZATION_SECRET`
-
-Expected body:
-
-```json
-{
-  "caller_id": "+393331234567",
-  "agent_id": "agent_abc123",
-  "called_number": "+390212345678",
-  "call_sid": "CA123"
-}
-```
-
-Returns `conversation_initiation_client_data` with all dynamic variables.
-
-## Current Dynamic Variables
-
-All variables sent to ElevenLabs at call start. Use `{{variable_name}}` syntax in prompts and first message.
-
-| Variable | Source | Example |
-|----------|--------|---------|
-| `restaurant_id` | DB | `a1f59bc4-b750-4f2c-bcb1-0a703ac732c7` |
-| `restaurant_name` | DB | `Trattoria Madonnina` |
-| `address` | DB | `Via Roma 12, Milano` |
-| `timezone` | DB | `Europe/Rome` |
-| `opening_hours` | DB | `lunch: 12:00-15:00, dinner: 19:00-23:00` |
-| `weekly_closures` | DB | `monday` |
-| `closure_dates` | DB | `2026-04-01, 2026-04-25` |
-| `turni_description` | DB (computed) | `Primo: 19:00-21:00 (40p), Secondo: 21:00-23:00 (40p)` |
-| `large_group_threshold` | DB | `10` |
-| `caller_phone` | Twilio | `+41779802809` |
-| `called_number` | Twilio | `+41225394205` |
-| `call_sid` | Twilio | `CA123abc` |
-| `current_date` | Server clock | `2026-03-28` |
-| `current_time` | Server clock | `15:30` |
-| `current_day_of_week` | Server clock | `Saturday` |
-| `agent_style_notes` | DB | `Warm, concise, premium Italian hospitality tone.` |
-| `greeting` | DB + server clock | `Buonasera, Trattoria Madonnina. Come posso aiutarla?` |
-
-**Important:** `greeting` is resolved by the backend from `custom_greeting` with `{saluto}` replaced by `Buongiorno` (before 14:00) or `Buonasera` (after 14:00) in the restaurant's local timezone.
-
-The ElevenLabs **First Message** field should be set to:
-```
-{{greeting}}
-```
-
-## Server Tools
-
-All tool endpoints live in:
-
-- `backend/app/api/tools.py`
-
-Auth:
-
-- header: `X-Ristorante-Tool-Secret`
-- value: `ELEVENLABS_TOOL_SECRET` (from GCP Secret Manager)
-
-Test auth:
-
-```bash
-curl -i https://ristorante-ai-api-jc7mvuujwq-ew.a.run.app/api/tools/health \
-  -H "X-Ristorante-Tool-Secret: <secret>"
-```
-
-### `check_availability`
-
-- `POST /api/tools/check-availability`
-- `restaurant_id`: **dynamic_variable** (not llm_prompt)
-
-```json
-{
-  "restaurant_id": "{{restaurant_id}}",
-  "date": "2026-03-29",
-  "time_preference": "20:30:00",
-  "party_size": 5
-}
-```
-
-Returns: `{open, available, reason, alternatives: [{time, turno, remaining}]}`
-
-### `create_booking`
-
-- `POST /api/tools/create-booking`
-- `restaurant_id`: **dynamic_variable**
-- `caller_phone`: **dynamic_variable** pointing to `caller_phone`
-- agent should NEVER ask for the phone number — it comes from the dynamic variable
-
-```json
-{
-  "restaurant_id": "{{restaurant_id}}",
-  "date": "2026-03-29",
-  "time": "20:30:00",
-  "party_size": 5,
-  "customer_name": "Rossi",
-  "customer_phone": "{{caller_phone}}",
-  "caller_phone": "{{caller_phone}}",
-  "special_requests": null
-}
-```
-
-### `find_booking`
-
-- `POST /api/tools/find-booking`
-- `restaurant_id`: **dynamic_variable**
-- `caller_phone`: **dynamic_variable**
-
-```json
-{
-  "restaurant_id": "{{restaurant_id}}",
-  "caller_phone": "{{caller_phone}}"
-}
-```
-
-or by confirmation code:
-
-```json
-{
-  "restaurant_id": "{{restaurant_id}}",
-  "confirmation_code": "TM-042901"
-}
-```
-
-### `modify_booking`
-
-- `POST /api/tools/modify-booking`
-- `restaurant_id`: **dynamic_variable** (top-level, NOT inside `changes`)
-
-```json
-{
-  "confirmation_code": "TM-042901",
-  "restaurant_id": "{{restaurant_id}}",
-  "changes": {
-    "date": "2026-03-30",
-    "time": "21:00:00"
-  }
-}
-```
-
-### `cancel_booking`
-
-- `POST /api/tools/cancel-booking`
-
-```json
-{
-  "confirmation_code": "TM-042901"
-}
-```
-
-## Post-Call Webhook
-
-Route:
-
-- `POST /api/webhooks/elevenlabs/post-call`
-
-Security:
-
-- validated with `ELEVENLABS_WEBHOOK_SECRET`
-- expects `ElevenLabs-Signature` header
-- **currently DISABLED** — ElevenLabs auto-disabled it after repeated 401 errors
-- see `docs/OPERATIONS.md` for re-enable steps
-
-What it does:
-
-- creates or updates a `CallLog` record
-- determines `outcome` (booking_created/modified/cancelled/info_provided/escalated/abandoned/tool_error)
-- sets `call_status` (successful/failed/unknown) from payload — requires migration 0006
-- links call log to booking if one was created during the call window
-- invalidates analytics cache
-
-## ElevenLabs Agent Configuration
-
-### Voice Settings (recommended)
-
-| Setting | Value | Reason |
-|---------|-------|--------|
-| Model | `Eleven v3 Conversational` | Low-latency, expressive, real-time optimized |
-| Stability | 0.5–0.6 | Balanced warmth |
-| Similarity Boost | 0.5–0.65 | Lower = less source noise |
-| Style Exaggeration | **0** | Reduces latency and artifacts |
-| Speed | 1.0 | Natural conversation pace |
-
-**Audio noise fix:** Lower similarity boost to 0.5. If using a cloned voice, re-clone from cleaner audio processed through [ElevenLabs Voice Isolator](https://elevenlabs.io/voice-isolator).
-
-### ASR Settings
-
-- Model: `Scribe Realtime v2.1`
-- Input format: `μ-law 8000 Hz` (Telephony) — required for Twilio
-
-### Agent Identity
-
-- Agent name: **Edoardo** (the AI responds to this name only if asked)
-- Agent should NEVER introduce itself by name proactively
-- If asked "sei un'AI?": "Sì, sono un'assistente digitale. Posso aiutarla."
-
-## ElevenLabs API Key
-
-`ELEVENLABS_API_KEY` is required for:
-
-- Twilio inbound `register_call`
-- transcript retrieval from the Conversations API
-- agent sync checks
-
-If the key is missing, inbound calls can still hit the backend, but the route falls back instead of starting the real AI conversation.
-
-## ElevenLabs Quotas
-
-ElevenLabs plans have per-billing-period call minute quotas. When exceeded:
-
-- calls fail with "This request exceeds your quota limit"
-- this shows as `Call status: Error` in the ElevenLabs dashboard
-
-Fix: check usage at elevenlabs.io → Settings → Subscription. Upgrade or wait for cycle reset.
-
-## Agent Prompt
-
-The current system prompt is documented in:
-
-- `docs/SYSTEM_PROMPT.md`
+Saved studio config becomes the live phone-agent config for that restaurant.

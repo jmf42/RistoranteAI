@@ -16,7 +16,6 @@ export default function AdminPage() {
     address: "",
     timezone: "Europe/Rome",
     twilio_phone: "",
-    elevenlabs_agent_id: "",
     escalation_phone: ""
   });
   const [saving, setSaving] = useState(false);
@@ -58,7 +57,7 @@ export default function AdminPage() {
           address: form.address,
           timezone: form.timezone,
           twilio_phone: form.twilio_phone || null,
-          elevenlabs_agent_id: form.elevenlabs_agent_id || null,
+          voice_provider: "openai_realtime",
           escalation_phone: form.escalation_phone || null,
           opening_hours: { lunch: "12:00-15:00", dinner: "19:00-23:00" },
           weekly_closures: [],
@@ -85,7 +84,6 @@ export default function AdminPage() {
         address: "",
         timezone: "Europe/Rome",
         twilio_phone: "",
-        elevenlabs_agent_id: "",
         escalation_phone: ""
       });
       await refreshWorkspace();
@@ -199,7 +197,6 @@ export default function AdminPage() {
                 ["address", "Indirizzo", ""],
                 ["timezone", "Timezone", ""],
                 ["twilio_phone", "Numero Twilio", ""],
-                ["elevenlabs_agent_id", "Agent id", ""],
                 ["escalation_phone", "Numero escalation", ""]
               ].map(([field, label, pattern]) => (
                 <label key={field} className="grid gap-2 text-sm text-ink/65">
@@ -230,15 +227,11 @@ export default function AdminPage() {
             <ol className="list-inside list-decimal space-y-3 text-sm leading-6 text-ink/65">
               <li>
                 <strong className="text-ink/80">Crea il tenant qui sopra</strong> &mdash; inserisci nome, slug e
-                indirizzo. Twilio e ElevenLabs si possono aggiungere dopo.
+                indirizzo. Twilio si può collegare subito dopo.
               </li>
               <li>
-                <strong className="text-ink/80">Configura un agente ElevenLabs</strong> &mdash; crea un nuovo agente
-                nella console ElevenLabs e copia l&apos;agent id nel campo qui sopra.
-              </li>
-              <li>
-                <strong className="text-ink/80">Acquista un numero Twilio</strong> &mdash; associa il numero
-                all&apos;agente ElevenLabs e inseriscilo nel campo Numero Twilio.
+                <strong className="text-ink/80">Collega un numero Twilio</strong> &mdash; configura il numero
+                inbound e punta il webhook voce al backend di Ristorante AI.
               </li>
               <li>
                 <strong className="text-ink/80">Personalizza turni e orari</strong> &mdash; vai in Impostazioni per
@@ -250,7 +243,7 @@ export default function AdminPage() {
               </li>
               <li>
                 <strong className="text-ink/80">Testa una chiamata</strong> &mdash; chiama il numero Twilio e verifica
-                che l&apos;agente risponda con il greeting corretto e possa prenotare.
+                che l&apos;assistente OpenAI risponda con il greeting corretto e possa prenotare.
               </li>
             </ol>
           </SectionCard>

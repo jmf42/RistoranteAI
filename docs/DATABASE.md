@@ -1,193 +1,105 @@
 # Database
 
-This file is the source of truth for how persistence works in this repository.
+Last updated: `2026-04-10`
 
-## Production Direction
+This document describes the current database shape relevant to the phone agent.
 
-The intended production database is managed PostgreSQL.
+## Source of Truth
 
-The current verified path is:
+Supabase Postgres is the source of truth for:
 
-- Supabase Postgres
-- SQLAlchemy ORM in the backend
-- Alembic migrations for schema control
-- backend-owned authentication
+- restaurants
+- users
+- bookings
+- booking events
+- customers
+- call logs
 
-This app does not use Supabase Auth as the system of record.
+The voice model never becomes the source of truth for reservations.
 
-## Current Verified State
-
-As of `2026-03-28`:
-
-- provider: Supabase
-- verified access path: Supabase pooler URL
-- live schema version: `0005 (head)`
-- migrations `0006`, `0007`, and `0008` exist locally — NOT YET applied to production
-
-See `docs/PRODUCTION_STATE.md` for the date-stamped live environment snapshot.
-
-## Main Tables
+## Voice-Relevant Tables
 
 ### `restaurants`
 
-Restaurant operational profile:
+Important fields:
 
-- identity and slug (unique, indexed)
-- address and timezone (default: `Europe/Rome`)
-- Twilio number
-- ElevenLabs agent id
-- opening hours (JSON: `{"lunch": "HH:MM-HH:MM", "dinner": "HH:MM-HH:MM"}`)
-- weekly_closures (JSON: list of lowercase weekday strings)
-- closure_dates (JSON: list of ISO date strings `YYYY-MM-DD`)
-- `turni` (JSON: list of `{name, start, end, max_covers}`)
-- booking rules (JSON: `{min_party, max_party, large_group_threshold, max_advance_days, min_lead_hours}`)
-- `custom_greeting` (Text, nullable) — supports `{saluto}` placeholder
-- `agent_style_notes` (Text, nullable)
-- escalation phone
-- active/inactive state
+- `twilio_phone`
+- `voice_provider`
+- `timezone`
+- `opening_hours`
+- `weekly_closures`
+- `closure_dates`
+- `turni`
+- `booking_rules`
+- `custom_greeting`
+- `agent_style_notes`
+- `escalation_phone`
+- `openai_prompt_override`
+- `openai_realtime_settings`
 
-### `users`
+Compatibility-only legacy field still present:
 
-Application auth users:
-
-- email (unique, indexed)
-- full name
-- role (`owner` or `operator`)
-- password hash (bcrypt)
-- active state
-- `token_valid_after` (DateTime) — for JWT revocation on password change
-- legacy optional `restaurant_id` (FK — single restaurant link, not indexed — **missing index**)
-
-### `user_restaurants`
-
-User-to-restaurant access links. This is the intended multi-restaurant access model.
-
-- unique constraint on `(user_id, restaurant_id)`
-
-### `bookings`
-
-Reservation records:
-
-- restaurant id (indexed)
-- confirmation code (unique, indexed) — currently sequential (e.g. `TM-032801`) — predictable, should be randomized
-- date (indexed) and time
-- turno (indexed)
-- party size
-- `customer_name_encrypted` (Text) — AES encrypted PII
-- `customer_phone_encrypted` (Text) — AES encrypted PII
-- `customer_phone_hash` (String(64), indexed) — for lookups without decryption
-- source (`ai_phone`, `dashboard`, `walk_in`)
-- booking status (`confirmed`, `modified`, `cancelled`, `no_show`, `completed`)
-- special requests (nullable)
-- optional linked `customer_id` (FK, indexed)
-
-**Missing index:** `(restaurant_id, date)` composite — used in every availability check.
-
-### `customers`
-
-Customer-level deduplicated entity for reporting and CRM-style flows:
-
-- `phone_hash` (indexed) — SHA-256 of normalized phone
-- `name_encrypted`, `phone_encrypted` — AES encrypted
-- `booking_count`, `no_show_count`, `cancellation_count`
-- `last_booking_date`
-- `notes` (staff notes, plaintext)
-- unique constraint on `(restaurant_id, phone_hash)`
-
-### `booking_events`
-
-Audit-style booking history. Powers lifecycle history in the dashboard:
-
-- `event_type` (e.g., `created`, `modified`, `cancelled`)
-- `changed_by` (e.g., `ai_phone`, `user:<user_id>`)
-- `changes` (JSON — delta payload of what changed)
+- `elevenlabs_agent_id`
 
 ### `call_logs`
 
-Call summary records:
+Important fields:
 
-- restaurant id (indexed)
-- ElevenLabs conversation id (unique, indexed)
-- `caller_phone_hash` (indexed) — hashed caller phone
-- `started_at` (DateTime, indexed)
+- `voice_provider`
+- `provider_call_id`
+- `twilio_call_sid`
+- `started_at`
 - `duration_seconds`
-- `outcome` (`booking_created`, `booking_modified`, `booking_cancelled`, `info_provided`, `escalated`, `abandoned`, `tool_error`)
-- `call_status` (`successful`, `failed`, `unknown`) — added in migration 0006, NOT YET deployed
-- `booking_id` (FK, nullable, indexed)
-- `summary` (Text)
-- `transcript_preview` (Text, nullable)
-- `extra_data` (JSON) — flexible metadata, not exposed in API
+- `outcome`
+- `call_status`
+- `booking_id`
+- `summary`
+- `transcript_preview`
+- `extra_data`
 
-**Note:** `call_logs` has no `created_at` field — only `started_at` (when the call happened). Webhook delivery delay is not tracked.
+Compatibility-only legacy field still present:
 
-## Current Migration History
+- `elevenlabs_conversation_id`
 
-| Migration | Date | Changes |
-|-----------|------|---------|
-| `0001` | 2026-03-24 | Initial schema: restaurants, users, bookings, call_logs |
-| `0002` | 2026-03-24 | customers, booking_events, user_restaurants; customer_id on bookings |
-| `0003` | 2026-03-25 | Backfill customers and booking events from existing booking data |
-| `0004` | 2026-03-25 | Add missing index on `call_logs.booking_id` |
-| `0005` | 2026-03-26 | Flatten `assistant_settings` JSON → `custom_greeting` + `agent_style_notes`; add `users.token_valid_after` |
-| `0006` | 2026-03-28 | Add `call_status` column + index to `call_logs` — **LOCAL ONLY, NOT DEPLOYED** |
-| `0007` | 2026-03-31 | Add `raw_webhook_events` inbox table — **LOCAL ONLY, NOT DEPLOYED** |
-| `0008` | 2026-04-01 | Enable RLS on all public app tables; preserve backend access for `postgres` / `service_role` — **LOCAL ONLY, NOT DEPLOYED** |
+`extra_data` is where the realtime bridge stores:
 
-The important lesson is not just the migration number. Before editing restaurant AI settings or auth token invalidation, verify:
+- `openai_session_id`
+- `tool_events`
+- `response_usage`
+- `transcription_events`
+- `dropped_input_audio_packets`
+- call error metadata, when finalization captures an error path
+- basic call metadata
 
-1. latest migration file
-2. current ORM model
-3. live Alembic version
-4. actual API payload shape used by the dashboard
+## Booking Write Path
 
-## Known Missing Indexes
+Phone-agent writes still go through the same existing booking tables and services as dashboard writes.
 
-These indexes are missing and should be added in a future migration:
+- new booking → `bookings`
+- modify booking → `bookings` + `booking_events`
+- cancel booking → `bookings` + `booking_events`
 
-| Table | Missing Index | Priority | Why |
-|-------|--------------|----------|-----|
-| `users` | `restaurant_id` | High | Tenant filtering queries |
-| `bookings` | `(restaurant_id, date)` composite | High | Every availability check uses this |
-| `customers` | `last_booking_date` | Low | Customer recency queries |
+The voice runtime does not bypass the booking engine.
 
-## Production Rules
+## Config Freshness Note
 
-- use Alembic for schema changes — never `AUTO_CREATE_SCHEMA=true` in production
-- keep `SEED_DEMO=false` in production
-- keep `PII_ENCRYPTION_KEY` stable across deployments — changing it makes historical data unreadable
-- keep the Supabase pooler URL as the safe default unless a direct connection is proven valid
-- `call_status` column (migration 0006) must be applied before deploying the backend code that uses it
-- every application table in schema `public` must keep Row Level Security enabled
-- `anon` and `authenticated` should have no table access to application data
+Restaurant config used on the hot tool path is cached briefly in memory for performance. Restaurant updates and studio config saves now invalidate that cache immediately, so prompt and booking-rule changes take effect on the next tool call instead of waiting for TTL expiry.
 
-## Connection and Pooling
+## Migrations Relevant To The Realtime Migration
 
-The backend reads `DATABASE_URL` from config.
+- `20260404_0010_openai_realtime_voice_runtime.py`
+  generic voice-provider fields for the new runtime
+- `20260405_0011_persist_openai_agent_config.py`
+  per-restaurant prompt/session config persistence
 
-Production-related pool settings:
+## Production Rule
 
-- `DB_POOL_SIZE`
-- `DB_MAX_OVERFLOW`
-- `DB_POOL_TIMEOUT_SECONDS`
-- `DB_POOL_RECYCLE_SECONDS`
+Do not change schema manually in Supabase.
 
-These only apply to non-SQLite databases.
+Use:
 
-## PII Model
-
-Booking names and phones are treated as sensitive.
-
-Important:
-
-- the application encrypts booking PII at rest using AES (via `PII_ENCRYPTION_KEY`)
-- hashes (SHA-256) of phone numbers are stored separately for lookup without decryption
-- `PII_ENCRYPTION_KEY` must stay stable — changing it makes historical encrypted data unreadable
-- the salt `"ristorante-ai-pii-v2"` and 600,000 PBKDF2 iterations are hardcoded in `core/security.py`
-- caller_phone_hash on call_logs is also stored but NOT exposed in the API
-
-## Operational Notes
-
-- the live Cloud Run deployment points at Supabase through the pooler
-- backups and PITR are managed at the Supabase platform level, not from this repo
-- this repo can verify migrations and runtime behavior, but backup policy requires Supabase-side confirmation
-- migration `0008` is the Supabase hardening baseline for public schema tables
+```bash
+cd backend
+uv run alembic revision --autogenerate -m "description"
+uv run alembic upgrade head
+```

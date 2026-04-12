@@ -6,7 +6,7 @@ from io import StringIO
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
-from sqlalchemy import select
+from sqlalchemy import case, or_, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import (
@@ -17,15 +17,8 @@ from app.api.deps import (
     require_roles,
 )
 from app.core.observability import json_log
-from app.integrations.elevenlabs import elevenlabs_service
 from app.models import CallLog, User
 from app.schemas.calls import CallLogRead, CallSyncResponse, TranscriptResponse
-from app.services.call_logs import (
-    WEBHOOK_SOURCE_ELEVENLABS_POST_CALL,
-    count_pending_webhook_events,
-    replay_webhook_events,
-    sync_recent_calls_from_elevenlabs,
-)
 
 router = APIRouter(prefix="/calls", tags=["calls"])
 
@@ -34,7 +27,9 @@ def _call_to_read(call: CallLog) -> CallLogRead:
     return CallLogRead(
         id=call.id,
         restaurant_id=call.restaurant_id,
-        elevenlabs_conversation_id=call.elevenlabs_conversation_id,
+        voice_provider=call.voice_provider,
+        provider_call_id=call.provider_call_id,
+        twilio_call_sid=call.twilio_call_sid,
         started_at=call.started_at.isoformat(),
         duration_seconds=call.duration_seconds,
         outcome=call.outcome,
@@ -50,6 +45,9 @@ def list_calls(
     restaurant_id: str | None = Query(default=None),
     outcome: str | None = Query(default=None),
     days: int = Query(default=14, ge=1, le=90),
+    search: str | None = Query(default=None),
+    attention_only: bool = Query(default=False),
+    sort: str = Query(default="newest", pattern="^(newest|longest|follow_up)$"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> list[CallLogRead]:
@@ -58,7 +56,45 @@ def list_calls(
     stmt = select(CallLog).where(CallLog.restaurant_id == resolved_id, CallLog.started_at >= start_dt)
     if outcome:
         stmt = stmt.where(CallLog.outcome == outcome)
-    calls = db.scalars(stmt.order_by(CallLog.started_at.desc()).limit(250)).all()
+    if search:
+        pattern = f"%{search.strip()}%"
+        stmt = stmt.where(
+            or_(
+                CallLog.summary.ilike(pattern),
+                CallLog.transcript_preview.ilike(pattern),
+                CallLog.booking_id.ilike(pattern),
+                CallLog.provider_call_id.ilike(pattern),
+                CallLog.twilio_call_sid.ilike(pattern),
+            )
+        )
+    if attention_only:
+        stmt = stmt.where(
+            or_(
+                CallLog.call_status == "failed",
+                CallLog.outcome == "tool_error",
+                CallLog.outcome == "abandoned",
+            )
+        )
+
+    if sort == "longest":
+        stmt = stmt.order_by(CallLog.duration_seconds.desc(), CallLog.started_at.desc())
+    elif sort == "follow_up":
+        follow_up_rank = case(
+            (
+                or_(
+                    CallLog.call_status == "failed",
+                    CallLog.outcome == "tool_error",
+                    CallLog.outcome == "abandoned",
+                ),
+                0,
+            ),
+            else_=1,
+        )
+        stmt = stmt.order_by(follow_up_rank.asc(), CallLog.started_at.desc())
+    else:
+        stmt = stmt.order_by(CallLog.started_at.desc())
+
+    calls = db.scalars(stmt.limit(250)).all()
     return [_call_to_read(call) for call in calls]
 
 
@@ -73,22 +109,6 @@ def sync_calls(
     resolved_id = accessible_restaurant_id(db, current_user=current_user, restaurant_id=restaurant_id)
     restaurant = get_restaurant_or_404(db, resolved_id)
     request_id = getattr(request.state, "request_id", None)
-    replayed_events, failed_events = replay_webhook_events(
-        db,
-        source=WEBHOOK_SOURCE_ELEVENLABS_POST_CALL,
-        restaurant=restaurant,
-        request_id=request_id,
-    )
-    backfilled_calls = sync_recent_calls_from_elevenlabs(
-        db,
-        restaurant=restaurant,
-        days=days,
-        request_id=request_id,
-    )
-    pending_events = count_pending_webhook_events(
-        db,
-        source=WEBHOOK_SOURCE_ELEVENLABS_POST_CALL,
-    )
     json_log(
         "app.calls",
         {
@@ -96,18 +116,18 @@ def sync_calls(
             "request_id": request_id,
             "restaurant_id": restaurant.id,
             "days": days,
-            "replayed_events": replayed_events,
-            "failed_events": failed_events,
-            "backfilled_calls": backfilled_calls,
-            "pending_events": pending_events,
+            "replayed_events": 0,
+            "failed_events": 0,
+            "backfilled_calls": 0,
+            "pending_events": 0,
             "user_email": current_user.email,
         },
     )
     return CallSyncResponse(
-        replayed_events=replayed_events,
-        failed_events=failed_events,
-        pending_events=pending_events,
-        backfilled_calls=backfilled_calls,
+        replayed_events=0,
+        failed_events=0,
+        pending_events=0,
+        backfilled_calls=0,
     )
 
 
@@ -134,7 +154,8 @@ def export_calls(
             "outcome",
             "summary",
             "booking_id",
-            "elevenlabs_conversation_id",
+            "provider_call_id",
+            "twilio_call_sid",
         ]
     )
     for call in calls:
@@ -145,7 +166,8 @@ def export_calls(
                 call.outcome,
                 call.summary,
                 call.booking_id or "",
-                call.elevenlabs_conversation_id or "",
+                call.provider_call_id or "",
+                call.twilio_call_sid or "",
             ]
         )
     filename = f"calls-{datetime.now(UTC).date().isoformat()}.csv"
@@ -177,21 +199,9 @@ def get_transcript(
     call = db.scalar(select(CallLog).where(CallLog.id == call_id, CallLog.restaurant_id == resolved_id))
     if not call:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Call not found")
-    remote = None
-    if call.elevenlabs_conversation_id:
-        remote = elevenlabs_service.fetch_conversation_transcript(call.elevenlabs_conversation_id)
-    if remote:
-        analysis = remote.get("analysis") if isinstance(remote.get("analysis"), dict) else {}
-        return TranscriptResponse(
-            call_id=call.id,
-            source="elevenlabs",
-            summary=analysis.get("transcript_summary") or call.summary,
-            transcript=remote.get("transcript"),
-            metadata={key: value for key, value in remote.items() if key != "transcript"},
-        )
     return TranscriptResponse(
         call_id=call.id,
-        source="local-preview",
+        source=call.voice_provider,
         summary=call.summary,
         transcript=call.transcript_preview,
         metadata=call.extra_data or {},

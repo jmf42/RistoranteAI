@@ -1,191 +1,129 @@
 # Architecture
 
+Last updated: `2026-04-10`
+
 ## System Shape
 
-The product is intentionally split into two applications plus one managed database:
+The product has three core parts:
 
 - `backend/`
-  FastAPI service. Source of truth for auth, bookings, availability, analytics, webhook processing, and tool execution.
+  FastAPI application. Source of truth for auth, restaurant config, booking logic, analytics, and voice orchestration.
 - `dashboard/`
-  Next.js owner/operator UI. All business logic stays in the backend.
+  Next.js application for owners and platform operators.
 - Supabase Postgres
-  managed PostgreSQL backing the application data model.
+  Shared application database.
 
-## Core Runtime Flow
+## Live Voice Runtime
 
-```
-Caller → Twilio → POST /api/twilio/inbound
-                       │
-                       ├─ Resolve restaurant by twilio_phone
-                       ├─ Call ElevenLabs register_call()
-                       └─ Return TwiML to Twilio
-                                │
-                          ElevenLabs handles voice
-                                │
-                    ┌───────────┴───────────┐
-                    │                       │
-          POST /api/integrations/    POST /api/tools/*
-          elevenlabs/twilio-         (check_availability,
-          personalization            create_booking,
-          (dynamic variables)        find_booking,
-                                     modify_booking,
-                                     cancel_booking)
-                                           │
-                                    PostgreSQL / Supabase
-                                           │
-                         POST /api/webhooks/elevenlabs/post-call
-                         (call summary, outcome, transcript)
-                                           │
-                                    Dashboard reads state
+```text
+Caller
+  ↓
+Twilio number
+  ↓
+POST /api/twilio/inbound
+  ↓
+Backend resolves restaurant + returns TwiML Stream
+  ↓
+Twilio Media Stream
+  ↓
+WS /api/twilio/media-stream
+  ↓
+Backend OpenAI Realtime bridge
+  ↙                     ↘
+OpenAI Realtime      Backend tools + DB
+  ↓                     ↓
+Assistant audio      bookings / call logs / analytics
+  ↓
+Twilio
+  ↓
+Caller hears the agent
 ```
 
-1. A caller reaches the restaurant phone line in Twilio.
-2. Twilio sends the inbound webhook to `POST /api/twilio/inbound`.
-3. The backend resolves the restaurant from the called number, calls ElevenLabs `register_call`, and returns ElevenLabs-generated TwiML to Twilio.
-4. Twilio connects the call to ElevenLabs.
-5. ElevenLabs handles the live voice interaction.
-6. **During the call:** ElevenLabs calls the personalization endpoint once for context, then calls tool endpoints for booking operations.
-7. **After the call:** ElevenLabs fires the post-call webhook with summary, transcript, and call metadata.
-8. The dashboard reads the same backend state — operators see the same truth the AI acted on.
+## Core Flow
 
-## Dynamic Variables Flow
-
-The personalization endpoint (`POST /api/integrations/elevenlabs/twilio-personalization`) builds the full context injected into ElevenLabs at call start:
-
-```
-Restaurant DB record
-      │
-      ▼
-personalization.py
-      │
-      ├─ restaurant_id, restaurant_name, address, timezone
-      ├─ opening_hours, weekly_closures, closure_dates
-      ├─ turni_description, large_group_threshold
-      ├─ caller_phone, called_number, call_sid
-      ├─ current_date, current_time, current_day_of_week (from server clock)
-      ├─ agent_style_notes
-      └─ greeting (resolves {saluto} → Buongiorno/Buonasera by hour)
-            │
-            ▼
-    ElevenLabs dynamic variables
-    (injected as {{variable_name}} in system prompt and first message)
-```
+1. The caller dials a Twilio number.
+2. Twilio calls `POST /api/twilio/inbound`.
+3. The backend finds the restaurant using `restaurants.twilio_phone`.
+4. The backend creates a signed stream token and returns TwiML with a Twilio media stream.
+5. The Twilio websocket reaches `WS /api/twilio/media-stream`.
+6. The backend opens an OpenAI Realtime websocket session.
+7. Audio is streamed both directions using `g711_ulaw` (mu-law, 8kHz telephony codec).
+8. The model calls backend tools for availability and booking writes.
+9. The backend writes authoritative state to Postgres.
+10. The dashboard reads the same state the agent used.
 
 ## Backend Layers
 
 - `app/api/`
-  HTTP layer only. Authentication, validation, and status codes belong here.
+  HTTP and websocket boundaries only.
 - `app/services/`
-  Business logic. Reservation rules, analytics aggregation, availability checks, seeding.
+  Booking logic, availability, analytics, and the OpenAI realtime bridge.
 - `app/models/entities.py`
-  SQLAlchemy data model. Single source of truth for table shape.
+  SQLAlchemy source of truth.
 - `app/core/`
-  Environment settings, DB engine/session, security helpers, request logging, rate limiting, in-memory cache.
-- `app/integrations/elevenlabs.py`
-  Vendor boundary for transcript retrieval, agent sync checks, Twilio call registration, webhook verification.
+  config, DB wiring, security helpers, logging, rate limiting.
 
-## Frontend Layers
+## Voice Orchestration Boundary
+
+The OpenAI-specific logic lives in:
+
+- `backend/app/services/openai_realtime.py`
+
+It owns:
+
+- prompt generation
+- session config generation
+- tool schema generation
+- Twilio audio bridge
+- tool dispatch
+- transcript accumulation
+- final call persistence
+- technical fallback and human transfer orchestration
+
+This keeps business logic private and server-side, which matches the OpenAI Realtime recommendation to keep tool use and orchestration on the application server.
+
+## Dashboard Layers
 
 - `dashboard/app/`
-  Route-level screens (Home, Bookings, Calls, Capacity, Settings, Admin, Login).
+  Route screens.
 - `dashboard/components/`
-  Shared dashboard shell, auth form, visual components (TrendChart, Heatmap, CapacityBars, StatCard), workspace switching.
+  Shell, layout, workspace UI, shared cards/charts.
 - `dashboard/lib/api.ts`
-  Single browser API wrapper. Cookie credentials, 15-second timeout, `ApiError` class.
+  Browser API wrapper.
 - `dashboard/lib/types.ts`
-  TypeScript contracts that mirror backend payload shapes.
+  Shared frontend contracts.
 
-## Auth Flow
+## Operator Studio
 
-```
-Browser → POST /api/auth/login (email + password)
-               │
-               ├─ Verify bcrypt hash
-               ├─ Issue JWT
-               └─ Set HttpOnly cookie (Secure, SameSite=None)
-                        │
-               All subsequent requests include cookie
-                        │
-               GET /api/auth/me → SessionUser + restaurant_ids
-```
+The platform operator console is part of the dashboard and exposes:
 
-Token revocation uses `User.token_valid_after` — tokens issued before this timestamp are rejected.
+- live prompt preview
+- live session payload preview
+- tool schema preview
+- real tool sandbox calls
+- text-mode Realtime simulation
+- multi-scenario simulation suite for lightweight regression checks
+- saved per-restaurant runtime config
 
-## Availability Computation
+This is how the prompt/model/voice/VAD/tool behavior is tuned without hard-coding everything in source.
 
-There is no slot table. Availability is computed on demand:
+## Database Truth
 
-```
-check_availability(date, time, party_size)
-      │
-      ├─ Validate restaurant is open (opening_hours, weekly_closures, closure_dates)
-      ├─ Validate booking rules (min_party, max_party, max_advance_days, min_lead_hours)
-      ├─ Resolve turno for requested time
-      ├─ COUNT existing confirmed bookings in same turno + date
-      ├─ Compare against turno.max_covers
-      └─ Return available/unavailable + alternatives if unavailable
-```
+The database remains authoritative for:
 
-## Important Production Decisions
+- restaurants
+- bookings
+- booking events
+- customers
+- call logs
+- users and access control
 
-### Backend Owns the Rules
+The voice system is not a separate source of truth. OpenAI Realtime is only the live conversation engine; every real write still goes through the backend and DB.
 
-The frontend never decides availability, booking status, or conflict outcomes. All decisions are made in `app/services/`.
+## Important Production Notes
 
-### Auth Is App-Owned
-
-Backend-owned JWT auth with session cookies. Supabase is used for PostgreSQL only, not for Supabase Auth.
-
-### Availability Is Computed
-
-Capacity is calculated from restaurant `turni`, booking rules, and existing bookings. No separate slot table.
-
-### PII Is Encrypted
-
-Customer names and phone numbers are encrypted at rest (`AES` via `PII_ENCRYPTION_KEY`). Phone hashes are stored separately for lookups.
-
-### Observability Is In-App
-
-The backend adds request IDs, structured JSON logs, readiness checks (`/readyz` queries the DB), and Sentry hooks.
-
-### Abuse Protection Is Layered
-
-Rate limiting with stricter buckets for auth, tools, and webhooks. In the current Cloud Run deployment this is in-memory and therefore instance-local (resets on cold start).
-
-## Current Deployment Shape
-
-- frontend on Cloud Run (`ristorante-ai-dashboard`, `europe-west1`)
-- backend on Cloud Run (`ristorante-ai-api`, `europe-west1`)
-- secrets in Google Secret Manager
-- database on Supabase Postgres
-
-## Known Architecture Gaps
-
-These are documented issues that exist but have not been fixed yet:
-
-| Gap | Severity | Notes |
-|-----|---------|-------|
-| No Twilio signature validation on `/api/twilio/inbound` | Critical | Anyone can POST fake inbound calls |
-| Webhook signature check is optional | High | Remove the `if` guard — should always verify |
-| Call sync fires on every GET `/calls` | High | Should be a background job |
-| No pagination on calls/bookings | High | Unbounded queries, memory risk |
-| Heatmap uses UTC not local timezone | Medium | Analytics show wrong busy hours |
-| Confirmation codes are sequential | Medium | Predictable and enumerable |
-| No composite index on `(restaurant_id, date)` | High | Slow availability checks |
-| Operator role not scoped to restaurants | Medium | Operators can access any restaurant |
-
-## Telephony Safety Principle
-
-The main supported telephony entrypoint is backend-owned.
-
-Use:
-
-- Twilio inbound voice → backend `/api/twilio/inbound`
-
-Keep:
-
-- backend `/api/twilio/voice-fallback` only as failure handling
-
-Do not point Twilio directly at the legacy ElevenLabs `convai/twilio/inbound_call` URL. That path returned `404` during live debugging.
-
-Read `docs/OPERATIONS.md` and `docs/PRODUCTION_STATE.md` for the current live state.
+- `call_logs` are finalized locally from the live session, not fetched later from a vendor console.
+- `openai_prompt_override` and `openai_realtime_settings` are stored per restaurant.
+- `voice_provider`, `provider_call_id`, and `twilio_call_sid` are the generic call-tracking fields.
+- old ElevenLabs columns remain in the schema only as compatibility fields for historical data and migration safety.
+- Human transfer is available, but the prompt policy treats it as a last resort. Normal booking clarification should stay with the AI agent unless the caller asks for a human, the request is out of policy, audio remains unclear after targeted retries, or the tool/bridge path cannot safely complete.

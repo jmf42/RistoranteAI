@@ -15,8 +15,7 @@ def fernet_key() -> str:
 def main() -> None:
     print(f"JWT_SECRET={secrets.token_urlsafe(48)}")
     print(f"PII_ENCRYPTION_KEY={fernet_key()}")
-    print(f"ELEVENLABS_TOOL_SECRET={secrets.token_urlsafe(32)}")
-    print(f"ELEVENLABS_PERSONALIZATION_SECRET={secrets.token_urlsafe(32)}")
+    print(f"TOOL_SECRET={secrets.token_urlsafe(32)}")
 
 
 if __name__ == "__main__":

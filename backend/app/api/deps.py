@@ -127,11 +127,15 @@ def get_restaurant_cached(db: Session, restaurant_id: str) -> Restaurant:
     return restaurant
 
 
+def invalidate_restaurant_cache(restaurant_id: str) -> None:
+    _restaurant_cache.invalidate(f"restaurant:{restaurant_id}")
+
+
 def verify_tool_secret(request: Request) -> None:
     secret = request.headers.get(settings.tool_secret_header_name)
-    if secret != settings.elevenlabs_tool_secret:
+    if secret != settings.tool_secret:
         received_hint = f"{secret[:4]}…" if secret and len(secret) > 4 else "(missing)"
-        expected_hint = f"{settings.elevenlabs_tool_secret[:4]}…"
+        expected_hint = f"{settings.tool_secret[:4]}…"
         json_log(
             "app.security",
             {
@@ -144,15 +148,3 @@ def verify_tool_secret(request: Request) -> None:
             },
         )
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid tool secret")
-
-
-# Personalization uses the same header but accepts both the dedicated personalization
-# secret (if configured) and the general tool secret, so a single secret works for
-# all ElevenLabs integrations unless explicitly separated.
-def verify_personalization_secret(request: Request) -> None:
-    secret = request.headers.get(settings.tool_secret_header_name)
-    accepted = {settings.elevenlabs_tool_secret, settings.personalization_secret}
-    if secret not in accepted:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid personalization secret"
-        )

@@ -4,7 +4,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import JSON, Boolean, Date, DateTime, ForeignKey, Integer, String, Text, Time, UniqueConstraint
+from sqlalchemy import JSON, Boolean, Date, DateTime, ForeignKey, Index, Integer, String, Text, Time, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -46,6 +46,7 @@ class Restaurant(Base):
     slug: Mapped[str] = mapped_column(String(120), unique=True, index=True)
     name: Mapped[str] = mapped_column(String(200))
     twilio_phone: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    voice_provider: Mapped[str] = mapped_column(String(40), default="openai_realtime")
     elevenlabs_agent_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
     timezone: Mapped[str] = mapped_column(String(64), default="Europe/Rome")
     address: Mapped[str] = mapped_column(String(300))
@@ -58,6 +59,8 @@ class Restaurant(Base):
     agent_style_notes: Mapped[str | None] = mapped_column(
         Text, nullable=True, default="Warm, concise, premium Italian hospitality tone."
     )
+    openai_prompt_override: Mapped[str | None] = mapped_column(Text, nullable=True)
+    openai_realtime_settings: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     escalation_phone: Mapped[str | None] = mapped_column(String(30), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
@@ -95,6 +98,25 @@ class User(Base):
 
 class Booking(Base):
     __tablename__ = "bookings"
+    __table_args__ = (
+        Index(
+            "ix_bookings_restaurant_date_status_turno",
+            "restaurant_id",
+            "date",
+            "status",
+            "turno",
+        ),
+        Index(
+            "ix_bookings_restaurant_date_time_party_phone_status_created",
+            "restaurant_id",
+            "date",
+            "time",
+            "party_size",
+            "customer_phone_hash",
+            "status",
+            "created_at",
+        ),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
     restaurant_id: Mapped[str] = mapped_column(String(36), ForeignKey("restaurants.id"), index=True)
@@ -128,6 +150,9 @@ class CallLog(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
     restaurant_id: Mapped[str] = mapped_column(String(36), ForeignKey("restaurants.id"), index=True)
+    voice_provider: Mapped[str] = mapped_column(String(40), default="openai_realtime", index=True)
+    provider_call_id: Mapped[str | None] = mapped_column(String(120), nullable=True, index=True)
+    twilio_call_sid: Mapped[str | None] = mapped_column(String(120), nullable=True, index=True)
     elevenlabs_conversation_id: Mapped[str | None] = mapped_column(
         String(120), unique=True, nullable=True, index=True
     )

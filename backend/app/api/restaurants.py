@@ -7,8 +7,14 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.api.deps import accessible_restaurant_id, get_current_user, get_db, get_restaurant_or_404, require_roles
-from app.integrations.elevenlabs import elevenlabs_service
+from app.api.deps import (
+    accessible_restaurant_id,
+    get_current_user,
+    get_db,
+    get_restaurant_or_404,
+    invalidate_restaurant_cache,
+    require_roles,
+)
 from app.models import Booking, CallLog, Restaurant, User
 from app.schemas.common import SyncStatus
 from app.schemas.restaurant import RestaurantCreate, RestaurantRead, RestaurantSummary, RestaurantUpdate
@@ -65,7 +71,7 @@ def _to_read(restaurant: Restaurant, sync_status: SyncStatus | None = None) -> R
         slug=restaurant.slug,
         name=restaurant.name,
         twilio_phone=restaurant.twilio_phone,
-        elevenlabs_agent_id=restaurant.elevenlabs_agent_id,
+        voice_provider=restaurant.voice_provider,
         timezone=restaurant.timezone,
         address=restaurant.address,
         opening_hours=restaurant.opening_hours,
@@ -145,6 +151,7 @@ def create_restaurant(payload: RestaurantCreate, db: Session = Depends(get_db)) 
         db.rollback()
         _raise_restaurant_integrity_error(exc)
     db.refresh(restaurant)
+    invalidate_restaurant_cache(restaurant.id)
     return _to_read(restaurant)
 
 
@@ -167,14 +174,14 @@ def update_restaurant(
         db.rollback()
         _raise_restaurant_integrity_error(exc)
     db.refresh(restaurant)
+    invalidate_restaurant_cache(restaurant.id)
     warnings = _check_turni_coverage(restaurant)
     sync_status = None
     if sync_agent:
-        sync_result = elevenlabs_service.sync_restaurant_config(restaurant)
-        message = sync_result.message
+        message = "Configurazione OpenAI aggiornata localmente."
         if warnings:
             message = f"{message} ⚠ {' '.join(warnings)}"
-        sync_status = SyncStatus(synced=sync_result.synced, message=message)
+        sync_status = SyncStatus(synced=True, message=message)
     elif warnings:
         sync_status = SyncStatus(synced=True, message=f"⚠ {' '.join(warnings)}")
     return _to_read(restaurant, sync_status=sync_status)
