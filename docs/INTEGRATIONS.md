@@ -82,7 +82,7 @@ The current studio surface also exposes:
 
 - `OPENAI_REALTIME_MODEL` default `gpt-realtime-1.5`
 - `OPENAI_REALTIME_VOICE` default `cedar`
-- `OPENAI_REALTIME_BASE_URL` default `wss://api.openai.com/v1/realtime?model=gpt-realtime-1.5`
+- `OPENAI_REALTIME_BASE_URL` default `wss://eu.api.openai.com/v1/realtime?model=gpt-realtime-1.5`
 
 `PUBLIC_BASE_URL` must be the public backend origin Twilio can reach. It is used to generate the media-stream and status callback URLs.
 

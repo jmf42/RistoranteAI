@@ -42,6 +42,11 @@ def test_seed_demo_defaults_off_in_production() -> None:
     assert settings.seed_demo is False
 
 
+def test_openai_realtime_defaults_to_eu_endpoint() -> None:
+    settings = Settings(_env_file=None)
+    assert settings.openai_realtime_base_url == "wss://eu.api.openai.com/v1/realtime?model=gpt-realtime-1.5"
+
+
 def test_escape_ini_interpolation_doubles_percent_signs() -> None:
     assert escape_ini_interpolation("postgresql://user:p%40ss@host/db") == "postgresql://user:p%%40ss@host/db"
 
