@@ -276,6 +276,7 @@ export default function CallsPage() {
                       <div className="shrink-0 text-right text-xs text-ink/42">
                         <p>{formatDateTime(call.started_at)}</p>
                         <p className="mt-2">{formatDuration(call.duration_seconds)}</p>
+                        {call.caller_phone ? <p className="mt-2 font-mono">{call.caller_phone}</p> : null}
                       </div>
                     </div>
                   </button>
@@ -316,6 +317,7 @@ export default function CallsPage() {
                 <div className="grid gap-3 sm:grid-cols-2">
                   <MetaBlock label="Quando" value={formatDateTime(selectedCall.started_at)} />
                   <MetaBlock label="Durata" value={formatDuration(selectedCall.duration_seconds)} />
+                  <MetaBlock label="Chiamante" value={selectedCall.caller_phone ?? "—"} />
                   <MetaBlock label="Esito tecnico" value={formatCallStatusLabel(selectedCall.call_status)} />
                   <MetaBlock label="Booking collegata" value={selectedCall.booking_id ?? "Nessuna"} />
                 </div>

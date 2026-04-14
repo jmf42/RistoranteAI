@@ -26,6 +26,8 @@ from app.services.openai_realtime import (
     _run_silent_response_watchdog,
     _runtime_context_message,
     _send_response_create,
+    _should_ignore_post_write_user_turn,
+    _silent_response_retry_allowed,
     _successful_call_outcome,
     _sync_call_update,
     _sync_dispatch_tool,
@@ -40,6 +42,14 @@ from app.services.openai_realtime import (
 
 def _next_open_date() -> str:
     candidate = date.today() + timedelta(days=5)
+    while candidate.strftime("%A").lower() == "monday":
+        candidate += timedelta(days=1)
+    return candidate.isoformat()
+
+
+def _next_open_date_after(d: date) -> str:
+    """Return the next open date strictly after d, skipping Monday closures."""
+    candidate = d + timedelta(days=1)
     while candidate.strftime("%A").lower() == "monday":
         candidate += timedelta(days=1)
     return candidate.isoformat()
@@ -312,7 +322,7 @@ def test_create_booking_allows_same_caller_when_not_same_day_and_time(db_session
     assert error is None
     assert existing_booking is not None
 
-    booking_date = (existing_date + timedelta(days=1)).isoformat()
+    booking_date = _next_open_date_after(existing_date)
     booking_time = "20:00:00"
 
     state = RealtimeCallState(
@@ -600,7 +610,7 @@ def test_buffer_twilio_media_payload_keeps_caller_audio_even_during_assistant_sp
     assert state.dropped_input_audio_packets == 0
 
 
-def test_buffer_twilio_media_payload_blocks_audio_during_initial_greeting():
+def test_buffer_twilio_media_payload_allows_audio_during_initial_greeting_for_barge_in():
     state = RealtimeCallState(assistant_is_speaking=True)
     buffered_audio = bytearray()
     payload = base64.b64encode(b"caller-audio").decode("ascii")
@@ -612,19 +622,18 @@ def test_buffer_twilio_media_payload_blocks_audio_during_initial_greeting():
         buffered_packets=0,
     )
 
-    assert buffered_packets == 0
-    assert bytes(buffered_audio) == b""
-    assert state.dropped_input_audio_packets == 1
+    assert buffered_packets == 1
+    assert bytes(buffered_audio) == b"caller-audio"
+    assert state.dropped_input_audio_packets == 0
 
 
-def test_finish_initial_greeting_opens_audio_after_short_grace_window():
+def test_finish_initial_greeting_leaves_audio_open_without_grace_gate():
     state = RealtimeCallState(assistant_is_speaking=True)
     _finish_initial_greeting(state)
 
     assert state.initial_greeting_in_progress is False
-    assert state.initial_greeting_grace_until is not None
+    assert state.initial_greeting_grace_until is None
 
-    # Grace window still blocks immediate echo.
     immediate_buffer = bytearray()
     payload = base64.b64encode(b"echo").decode("ascii")
     assert (
@@ -634,23 +643,37 @@ def test_finish_initial_greeting_opens_audio_after_short_grace_window():
             buffered_audio=immediate_buffer,
             buffered_packets=0,
         )
-        == 0
-    )
-    assert state.dropped_input_audio_packets == 1
-
-    # Once the grace window passes, caller audio flows normally again.
-    state.initial_greeting_grace_until = None
-    live_buffer = bytearray()
-    assert (
-        _buffer_twilio_media_payload(
-            state,
-            payload=payload,
-            buffered_audio=live_buffer,
-            buffered_packets=0,
-        )
         == 1
     )
-    assert bytes(live_buffer) == b"echo"
+    assert state.dropped_input_audio_packets == 0
+    assert bytes(immediate_buffer) == b"echo"
+
+
+def test_silent_response_retry_allowed_only_for_true_silent_greeting_or_tool_followup():
+    state = RealtimeCallState()
+
+    assert _silent_response_retry_allowed(state, initial_response_phase=True) is True
+
+    state.caller_speech_detected = True
+    assert _silent_response_retry_allowed(state, initial_response_phase=True) is False
+
+    state = RealtimeCallState(initial_greeting_in_progress=False)
+    assert _silent_response_retry_allowed(state, initial_response_phase=False) is False
+
+    state.pending_tool_followup = True
+    assert _silent_response_retry_allowed(state, initial_response_phase=False) is True
+
+
+def test_tool_scope_update_keeps_realtime_session_type():
+    payload = _build_tool_scope_update(
+        tool_names=("check_availability", "find_booking"),
+        overrides=RealtimeSessionOverrides(),
+    )
+
+    assert payload["type"] == "session.update"
+    assert payload["session"]["type"] == "realtime"
+    assert payload["session"]["tool_choice"] == "auto"
+    assert len(payload["session"]["tools"]) == 2
 
 
 def test_conversation_summary_prompt_anchors_tool_outcomes():
@@ -775,6 +798,77 @@ def test_confirmation_granted_from_transcription_delta_before_completion():
 
     assert state.confirmation_granted is True
     assert _write_confirmation_granted(state) is True
+
+
+def test_name_confirmation_does_not_unlock_booking_write():
+    state = RealtimeCallState(
+        caller_phone="+41779802809",
+        twilio_call_sid="CA_name_confirmation_scope",
+    )
+
+    _ingest_assistant_transcript(state, "Juan Manuel Fuentes, corretto cosi?")
+
+    assert state.last_requested_field == "customer_name"
+    assert state.pending_confirmation_kind == "name"
+    assert state.awaiting_confirmation is False
+
+    _ingest_user_transcript(state, "Correcto.")
+
+    assert state.confirmation_granted is False
+    assert _write_confirmation_granted(state) is False
+
+
+def test_booking_confirmation_still_works_after_name_confirmation():
+    state = RealtimeCallState(
+        caller_phone="+41779802809",
+        twilio_call_sid="CA_name_then_booking_confirmation",
+    )
+
+    _ingest_assistant_transcript(state, "Juan Manuel Fuentes, corretto cosi?")
+    _ingest_user_transcript(state, "Correcto.")
+    assert _write_confirmation_granted(state) is False
+
+    _ingest_assistant_transcript(
+        state,
+        "Perfetto, la prenoto per sabato alle 19 per cinque persone a nome Juan Manuel Fuentes. Confermo?",
+    )
+    _ingest_user_transcript(state, "Sì")
+
+    assert state.pending_confirmation_kind == "write"
+    assert state.confirmation_granted is True
+    assert _write_confirmation_granted(state) is True
+
+
+def test_create_booking_success_sets_terminal_write_success(db_session):
+    session_factory = sessionmaker(bind=db_session.get_bind(), autoflush=False, autocommit=False)
+    restaurant = db_session.scalar(select(Restaurant).where(Restaurant.slug == "trattoria-da-mario"))
+    booking_date = _next_open_date()
+    state = RealtimeCallState(
+        caller_phone="+393409991112",
+        twilio_call_sid="CA_terminal_write_success",
+    )
+    _ingest_assistant_transcript(
+        state, "5 aprile alle 20:00 per 2 persone a nome Luca. Confermo?"
+    )
+    _ingest_user_transcript(state, "Sì, confermo")
+
+    result = _sync_dispatch_tool(
+        session_factory,
+        restaurant=restaurant,
+        state=state,
+        tool_name="create_booking",
+        arguments={
+            "date": booking_date,
+            "time": "20:00:00",
+            "party_size": 2,
+            "customer_name": "Luca",
+        },
+    )
+
+    assert result["success"] is True
+    assert state.terminal_write_success is True
+    assert state.end_call_after_response is True
+    assert _should_ignore_post_write_user_turn(state) is True
 
 
 def test_sync_call_update_merges_extra_data(db_session):

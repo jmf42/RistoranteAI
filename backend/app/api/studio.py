@@ -35,6 +35,8 @@ from app.services.openai_realtime import (
     SUPPORTED_RUNTIME_OVERRIDE_FIELDS,
     RealtimeCallState,
     RealtimeSessionOverrides,
+    _ingest_assistant_transcript,
+    _ingest_user_transcript,
     _sync_dispatch_tool,
     build_realtime_instructions,
     build_realtime_tools,
@@ -109,7 +111,14 @@ def agent_preview(
         tools=build_realtime_tools(),
         checklist=[StudioChecklistItem(**item) for item in studio_checklist(session_update)],
         readiness=[StudioChecklistItem(**item) for item in studio_readiness(restaurant)],
-        prompt_diagnostics=[StudioChecklistItem(**item) for item in studio_prompt_diagnostics(prompt)],
+        prompt_diagnostics=[
+            StudioChecklistItem(**item)
+            for item in studio_prompt_diagnostics(
+                prompt,
+                restaurant=restaurant,
+                effective_overrides=effective_overrides,
+            )
+        ],
         recommendations=[
             StudioChecklistItem(**item)
             for item in studio_recommendations(
@@ -160,9 +169,11 @@ def tool_test(
     state = RealtimeCallState(
         caller_phone=payload.caller_phone,
         twilio_call_sid="studio-tool-test",
-        last_user_transcript=payload.last_user_transcript,
-        last_assistant_transcript=payload.last_assistant_transcript,
     )
+    if payload.last_assistant_transcript:
+        _ingest_assistant_transcript(state, payload.last_assistant_transcript)
+    if payload.last_user_transcript:
+        _ingest_user_transcript(state, payload.last_user_transcript)
     result = _sync_dispatch_tool(
         session_factory,
         restaurant=restaurant,
@@ -228,7 +239,14 @@ def save_studio_config(
     live_restaurant = get_restaurant_cached(db, restaurant.id)
     live_prompt = build_realtime_instructions(live_restaurant, caller_phone="+390000000000")
     live_overrides = restaurant_session_overrides(live_restaurant)
-    live_diagnostics = [StudioChecklistItem(**item) for item in studio_prompt_diagnostics(live_prompt)]
+    live_diagnostics = [
+        StudioChecklistItem(**item)
+        for item in studio_prompt_diagnostics(
+            live_prompt,
+            restaurant=live_restaurant,
+            effective_overrides=live_overrides,
+        )
+    ]
     diagnostic_warnings = sum(1 for item in live_diagnostics if item.status != "good")
     deployment_status = "live" if diagnostic_warnings == 0 else "warning"
     deployment_message = (
@@ -296,6 +314,13 @@ def reset_studio_config(
                 for field in RealtimeSessionOverrides.__dataclass_fields__.keys()
             }
         ),
-        prompt_diagnostics=[StudioChecklistItem(**item) for item in studio_prompt_diagnostics(live_prompt)],
+        prompt_diagnostics=[
+            StudioChecklistItem(**item)
+            for item in studio_prompt_diagnostics(
+                live_prompt,
+                restaurant=live_restaurant,
+                effective_overrides=live_overrides,
+            )
+        ],
         published_at=live_restaurant.updated_at,
     )

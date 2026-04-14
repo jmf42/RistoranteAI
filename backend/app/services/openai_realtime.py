@@ -3,9 +3,10 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+import re
 from contextlib import suppress
 from dataclasses import dataclass, field, replace
-from datetime import UTC, date, datetime, time, timedelta
+from datetime import UTC, date, datetime, time
 from typing import Any, Literal
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from zoneinfo import ZoneInfo
@@ -86,7 +87,7 @@ FULL_TOOL_NAMES = (
     "cancel_booking",
     "escalate_to_human",
 )
-INPUT_AUDIO_BUFFER_PACKET_THRESHOLD = 5
+INPUT_AUDIO_BUFFER_PACKET_THRESHOLD = 2
 SILENT_RESPONSE_WATCHDOG_SECONDS = 1.8
 MAX_SILENT_RESPONSE_RETRIES = 1
 SUMMARY_TRIGGER_TURNS = 10
@@ -242,6 +243,97 @@ OVERRIDE_FIELD_LABELS = {
     "truncation_retention_ratio": "Retention ratio",
     "truncation_post_instructions_tokens": "Post-instructions tokens",
 }
+NUMBER_WORDS = {
+    "zero": 0,
+    "uno": 1,
+    "una": 1,
+    "un": 1,
+    "one": 1,
+    "unu": 1,
+    "due": 2,
+    "two": 2,
+    "dos": 2,
+    "deux": 2,
+    "tre": 3,
+    "three": 3,
+    "tres": 3,
+    "trois": 3,
+    "quattro": 4,
+    "four": 4,
+    "cuatro": 4,
+    "quatre": 4,
+    "cinque": 5,
+    "five": 5,
+    "cinco": 5,
+    "cinq": 5,
+    "sei": 6,
+    "six": 6,
+    "siete": 7,
+    "seven": 7,
+    "sept": 7,
+    "otto": 8,
+    "eight": 8,
+    "ocho": 8,
+    "huit": 8,
+    "nove": 9,
+    "nine": 9,
+    "nueve": 9,
+    "neuf": 9,
+    "dieci": 10,
+    "ten": 10,
+    "diez": 10,
+    "dix": 10,
+    "undici": 11,
+    "eleven": 11,
+    "once": 11,
+    "onze": 11,
+    "dodici": 12,
+    "twelve": 12,
+    "doce": 12,
+    "douze": 12,
+}
+NEGATIVE_WORDS = {
+    "no",
+    "non",
+    "not",
+    "nope",
+    "annulla",
+    "cancel",
+    "cancela",
+    "annule",
+}
+INFO_REQUEST_KEYWORDS = {
+    "vegani",
+    "vegano",
+    "vegetariani",
+    "vegetariano",
+    "glutine",
+    "menu",
+    "indirizzo",
+    "dove siete",
+    "where are you",
+}
+AVAILABILITY_ONLY_KEYWORDS = {
+    "opzioni",
+    "options",
+    "availability",
+    "disponibilita",
+    "disponibilità",
+    "avete posto",
+    "table available",
+}
+BOOKING_KEYWORDS = {
+    "prenot",
+    "reservation",
+    "reserve",
+    "reserva",
+    "reservar",
+    "book a table",
+}
+MODIFICATION_KEYWORDS = {"modific", "spost", "change my booking", "cambiar"}
+CANCELLATION_KEYWORDS = {"cancel", "cancell", "annull", "supprimer"}
+SLOT_19_MARKERS = {"19", "19:00", "7", "7:00", "7pm", "7 p.m", "dalle 19", "from 7", "19 alle 21"}
+SLOT_21_MARKERS = {"21", "21:00", "9", "9:00", "9pm", "9 p.m", "dalle 21", "from 9", "21 in poi"}
 
 
 @dataclass(slots=True)
@@ -295,8 +387,10 @@ class RealtimeCallState:
     confirmation_guard_transcript: str = ""
     awaiting_confirmation: bool = False
     confirmation_granted: bool = False
+    pending_confirmation_kind: Literal["write", "name"] | None = None
     pending_user_audio_transcripts: dict[str, str] = field(default_factory=dict)
     end_call_after_response: bool = False
+    terminal_write_success: bool = False
     assistant_is_speaking: bool = False
     response_watchdog_generation: int = 0
     response_audio_started: bool = False
@@ -304,9 +398,19 @@ class RealtimeCallState:
     dropped_input_audio_packets: int = 0
     initial_greeting_in_progress: bool = True
     initial_greeting_grace_until: datetime | None = None
+    caller_speech_detected: bool = False
+    interruption_events: list[dict[str, Any]] = field(default_factory=list)
     conversation_turns: list[dict[str, str]] = field(default_factory=list)
     conversation_item_ids: list[str] = field(default_factory=list)
     latest_summary: str | None = None
+    intent: Literal["unknown", "info", "availability_only", "new_booking", "modify", "cancel"] = "unknown"
+    last_requested_field: str | None = None
+    last_user_reply_valid: bool = True
+    invalid_field_attempts: dict[str, int] = field(default_factory=dict)
+    should_escalate: bool = False
+    escalation_reason: str | None = None
+    booking_context: dict[str, Any] = field(default_factory=dict)
+    current_booking_id: str | None = None
 
 
 def default_session_overrides() -> RealtimeSessionOverrides:
@@ -465,6 +569,304 @@ def _format_tool_event_for_summary(tool_name: str, result: dict[str, Any]) -> st
     return f"TOOL {tool_name} | " + " | ".join(details)
 
 
+def _normalized_text(text: str) -> str:
+    return " ".join(text.lower().strip().split())
+
+
+def _extract_number_token(token: str) -> int | None:
+    cleaned = re.sub(r"[^\w:+]", "", token.lower())
+    if cleaned.isdigit():
+        return int(cleaned)
+    return NUMBER_WORDS.get(cleaned)
+
+
+def _extract_party_details(text: str) -> dict[str, int]:
+    lowered = _normalized_text(text)
+    combined_children_match = re.search(
+        r"\b(\w+)\s+(?:con|with)\s+(\w+)\s+(?:bambini|bambino|children|kids|enfants|ninos|niños)\b",
+        lowered,
+    )
+    if combined_children_match:
+        first_count = _extract_number_token(combined_children_match.group(1))
+        second_count = _extract_number_token(combined_children_match.group(2))
+        if first_count is not None and second_count is not None:
+            return {"total": first_count + second_count, "children": second_count}
+    tokens = re.findall(r"\b[\w:']+\b", lowered)
+    counts: dict[str, int] = {}
+    for index, token in enumerate(tokens):
+        number = _extract_number_token(token)
+        if number is None:
+            continue
+        next_token = tokens[index + 1] if index + 1 < len(tokens) else ""
+        previous_token = tokens[index - 1] if index > 0 else ""
+        if next_token in {"bambini", "bambino", "kids", "children", "enfants", "ninos", "niños"}:
+            counts["children"] = number
+        elif next_token in {"adulti", "adulti,", "adults", "adultes"}:
+            counts["adults"] = number
+        elif previous_token == "siamo" or (previous_token == "for" and next_token == "people"):
+            counts.setdefault("total", number)
+    if "total" not in counts and "adults" in counts and "children" in counts:
+        counts["total"] = counts["adults"] + counts["children"]
+    return counts
+
+
+def _extract_time_candidate(text: str) -> time | None:
+    lowered = _normalized_text(text)
+    match = re.search(r"\b(\d{1,2})(?::(\d{2}))?\s*(a\.?m\.?|p\.?m\.?)?\b", lowered)
+    if not match:
+        return None
+    hour = int(match.group(1))
+    minute = int(match.group(2) or 0)
+    meridiem = (match.group(3) or "").replace(".", "")
+    if meridiem == "pm" and hour < 12:
+        hour += 12
+    if meridiem == "am" and hour == 12:
+        hour = 0
+    if hour > 23 or minute > 59:
+        return None
+    return time(hour, minute)
+
+
+def _service_period_from_time(requested_time: time | None) -> str | None:
+    if requested_time is None:
+        return None
+    if 12 <= requested_time.hour < 15:
+        return "lunch"
+    if requested_time.hour >= 19:
+        return "dinner"
+    return None
+
+
+def _detect_intent(text: str, current_intent: str) -> str:
+    lowered = _normalized_text(text)
+    if any(keyword in lowered for keyword in CANCELLATION_KEYWORDS):
+        return "cancel"
+    if any(keyword in lowered for keyword in MODIFICATION_KEYWORDS):
+        return "modify"
+    if any(keyword in lowered for keyword in BOOKING_KEYWORDS):
+        return "new_booking"
+    if any(keyword in lowered for keyword in AVAILABILITY_ONLY_KEYWORDS):
+        return "availability_only"
+    if any(keyword in lowered for keyword in INFO_REQUEST_KEYWORDS):
+        return "info"
+    return current_intent
+
+
+def _detect_requested_field(transcript: str) -> str | None:
+    lowered = _normalized_text(transcript)
+    if _looks_like_name_confirmation_request(lowered):
+        return "customer_name"
+    if _text_has_confirmation_cue(lowered):
+        return "confirmation"
+    if "seggiolon" in lowered or "high chair" in lowered:
+        return "high_chairs"
+    if "nome completo" in lowered or "name" in lowered:
+        return "customer_name"
+    if ("19" in lowered or "21" in lowered or "7 p.m" in lowered or "9 p.m" in lowered) and any(
+        cue in lowered for cue in {"quale", "preferisce", "works better", "prefiere", "preferez"}
+    ):
+        return "service_slot"
+    if "giorno" in lowered and "orario" in lowered and ("persone" in lowered or "people" in lowered):
+        return "booking_details"
+    if "orario" in lowered or "what time" in lowered:
+        return "time"
+    if "quante persone" in lowered or "how many people" in lowered:
+        return "party_size"
+    return None
+
+
+def _text_is_negative(text: str) -> bool:
+    lowered = _normalized_text(text)
+    return any(re.search(rf"\b{re.escape(word)}\b", lowered) for word in NEGATIVE_WORDS)
+
+
+def _slot_choice_from_text(text: str) -> str | None:
+    lowered = _normalized_text(text)
+    if any(marker in lowered for marker in SLOT_19_MARKERS):
+        return "slot_19"
+    if any(marker in lowered for marker in SLOT_21_MARKERS):
+        return "slot_21"
+    candidate_time = _extract_time_candidate(lowered)
+    if candidate_time and candidate_time.hour in {19, 20}:
+        return "slot_19"
+    if candidate_time and candidate_time.hour >= 21:
+        return "slot_21"
+    return None
+
+
+def _reply_matches_field(text: str, field_name: str | None) -> bool:
+    if not field_name:
+        return True
+    lowered = _normalized_text(text)
+    if field_name == "confirmation":
+        return _text_is_affirmative(lowered) or _text_is_negative(lowered)
+    if field_name == "service_slot":
+        return _slot_choice_from_text(lowered) is not None
+    if field_name == "booking_details":
+        return bool(_extract_time_candidate(lowered) or _extract_party_details(lowered))
+    if field_name == "party_size":
+        return bool(_extract_party_details(lowered))
+    if field_name == "time":
+        return _extract_time_candidate(lowered) is not None
+    if field_name == "customer_name":
+        return bool(re.search(r"[a-zA-ZÀ-ÿ]{2,}", text)) and "?" not in text
+    return True
+
+
+def _update_booking_context(state: RealtimeCallState, transcript: str) -> None:
+    party_details = _extract_party_details(transcript)
+    if party_details.get("total"):
+        state.booking_context["party_size"] = party_details["total"]
+    if party_details.get("children") is not None:
+        state.booking_context["children"] = party_details["children"]
+    if party_details.get("adults") is not None:
+        state.booking_context["adults"] = party_details["adults"]
+
+    requested_time = _extract_time_candidate(transcript)
+    if requested_time is not None:
+        state.booking_context["requested_time"] = requested_time.isoformat()
+        service_period = _service_period_from_time(requested_time)
+        if service_period:
+            state.booking_context["service_period"] = service_period
+
+    slot_choice = _slot_choice_from_text(transcript)
+    if slot_choice == "slot_19":
+        state.booking_context["requested_time"] = "19:00:00"
+        state.booking_context["service_period"] = "dinner"
+        state.booking_context["service_slot"] = slot_choice
+    elif slot_choice == "slot_21":
+        state.booking_context["requested_time"] = "21:00:00"
+        state.booking_context["service_period"] = "dinner"
+        state.booking_context["service_slot"] = slot_choice
+
+    lowered = _normalized_text(transcript)
+    if any(word in lowered for word in {"pranzo", "lunch", "dejeuner", "déjeuner"}):
+        state.booking_context["service_period"] = "lunch"
+    if any(word in lowered for word in {"cena", "dinner", "diner"}):
+        state.booking_context["service_period"] = "dinner"
+
+
+def _mark_invalid_field_attempt(state: RealtimeCallState, field_name: str) -> None:
+    attempts = state.invalid_field_attempts.get(field_name, 0) + 1
+    state.invalid_field_attempts[field_name] = attempts
+    state.last_user_reply_valid = False
+    if attempts >= 2:
+        state.should_escalate = True
+        state.escalation_reason = field_name
+
+
+def _clear_invalid_field_attempt(state: RealtimeCallState, field_name: str) -> None:
+    state.invalid_field_attempts[field_name] = 0
+    state.last_user_reply_valid = True
+
+
+def _guard_failed_result(state: RealtimeCallState, *, reason: str, assistant_instruction: str) -> dict[str, Any]:
+    should_escalate = state.should_escalate
+    return {
+        "success": False,
+        "reason": reason,
+        "retry_write": False,
+        "should_escalate": should_escalate,
+        "assistant_instruction": assistant_instruction,
+    }
+
+
+def _normalize_check_arguments(state: RealtimeCallState, arguments: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(arguments)
+    context_party_size = state.booking_context.get("party_size")
+    if isinstance(context_party_size, int) and context_party_size > int(arguments.get("party_size") or 0):
+        normalized["party_size"] = context_party_size
+    requested_time = state.booking_context.get("requested_time")
+    if requested_time and (
+        not normalized.get("time_preference")
+        or (
+            state.booking_context.get("service_period") == "lunch"
+            and time.fromisoformat(str(normalized["time_preference"])).hour >= 19
+        )
+    ):
+        normalized["time_preference"] = requested_time
+    return normalized
+
+
+def _normalize_create_arguments(state: RealtimeCallState, arguments: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(arguments)
+    context_party_size = state.booking_context.get("party_size")
+    if isinstance(context_party_size, int) and context_party_size > int(arguments.get("party_size") or 0):
+        normalized["party_size"] = context_party_size
+    requested_time = state.booking_context.get("requested_time")
+    if requested_time and (
+        not normalized.get("time")
+        or (
+            state.booking_context.get("service_period") == "lunch"
+            and time.fromisoformat(str(normalized["time"])).hour >= 19
+        )
+    ):
+        normalized["time"] = requested_time
+    return normalized
+
+
+def _booking_facts_from_state(state: RealtimeCallState) -> dict[str, Any]:
+    facts: dict[str, Any] = {}
+    for event in state.tool_events:
+        if event.get("tool") == "create_booking" and isinstance(event.get("arguments"), dict):
+            facts.update(event["arguments"])
+            if isinstance(event.get("result"), dict):
+                facts.update({key: value for key, value in event["result"].items() if key in {"booking_id"}})
+    for key in ("party_size", "requested_time", "customer_name", "date"):
+        if key in state.booking_context and key not in facts:
+            facts[key] = state.booking_context[key]
+    return facts
+
+
+def _build_final_call_summary(state: RealtimeCallState) -> str:
+    facts = _booking_facts_from_state(state)
+    if state.outcome == "booking_created":
+        party_size = facts.get("party_size", "?")
+        booked_time = str(facts.get("time") or facts.get("requested_time") or "?")[:5]
+        customer_name = facts.get("customer_name") or "cliente"
+        booked_date = facts.get("date") or "data richiesta"
+        return (
+            f"Prenotazione confermata per {party_size} persone il {booked_date} "
+            f"alle {booked_time} a nome {customer_name}."
+        )
+    if state.outcome == "escalated":
+        return "Chiamata trasferita al ristorante."
+    if state.outcome == "tool_error":
+        return "Chiamata non completata: servono chiarimenti o intervento del ristorante."
+    if state.intent == "availability_only" and state.tool_events:
+        last_event = state.tool_events[-1]
+        if last_event.get("tool") == "check_availability" and isinstance(last_event.get("result"), dict):
+            result = last_event["result"]
+            requested_time = str(
+                (last_event.get("arguments") or {}).get("time_preference")
+                or state.booking_context.get("requested_time")
+                or "orario richiesto"
+            )[:5]
+            requested_date = (last_event.get("arguments") or {}).get("date") or "data richiesta"
+            if result.get("available") is True:
+                return f"Disponibilita fornita per {requested_date} alle {requested_time}."
+            return f"Disponibilita non confermata per {requested_date} alle {requested_time}."
+    if state.intent == "info":
+        return "Informazioni fornite al cliente."
+    return state.transcript_lines[-1][:500] if state.transcript_lines else "Chiamata completata."
+
+
+def _build_final_conversation_summary(state: RealtimeCallState) -> str:
+    summary = _build_final_call_summary(state)
+    tool_bits = []
+    for event in state.tool_events:
+        result = event.get("result") if isinstance(event.get("result"), dict) else {}
+        if event.get("tool") == "check_availability":
+            tool_bits.append(
+                f"check_availability available={str(bool(result.get('available'))).lower()}"
+            )
+        if event.get("tool") == "create_booking":
+            tool_bits.append(f"create_booking success={str(bool(result.get('success'))).lower()}")
+    tool_line = f"Tool: {', '.join(tool_bits)}." if tool_bits else "Tool: nessun tool rilevante."
+    intent_line = f"Intento: {state.intent}."
+    return "\n".join([intent_line, f"Esito: {summary}", tool_line])
+
+
 def _build_conversation_summary_prompt(turns: list[dict[str, str]]) -> str:
     transcript = "\n".join(f"{turn['role']}: {turn['text']}" for turn in turns if turn.get("text"))
     return (
@@ -507,19 +909,22 @@ def _missing_confirmation_result(state: RealtimeCallState) -> dict[str, Any]:
         state.missing_confirmation_failures = 1
     else:
         state.missing_confirmation_failures += 1
+    if state.last_requested_field == "confirmation":
+        _mark_invalid_field_attempt(state, "confirmation")
+    should_escalate = state.missing_confirmation_failures >= 2 or state.should_escalate
     return {
         "success": False,
         "reason": "Conferma esplicita del cliente mancante.",
         "needs_explicit_yes": True,
         "retry_write": False,
-        "should_escalate": state.missing_confirmation_failures >= 2,
+        "should_escalate": should_escalate,
         "assistant_instruction": (
             "Se la conferma è ambigua, chiedi una sola volta in modo naturale e breve. "
             "Se resta ambigua, trasferisci al ristorante."
         ),
         "next_step": (
             "Chiedi una sola conferma finale breve in modo naturale. Se non è ancora chiara, passa a un umano."
-            if state.missing_confirmation_failures >= 2
+            if should_escalate
             else "Chiedi una sola conferma finale breve nel turno successivo. Non richiamare subito il tool."
         ),
     }
@@ -544,7 +949,7 @@ Role & Objective
 - Sei il receptionist telefonico di {restaurant.name}.
 - Gestisci nuove prenotazioni, modifiche, cancellazioni, richieste informative e passaggio a un umano quando serve.
 - Obiettivo primario: chiudere la richiesta nel minor numero di turni possibile, con chiarezza e affidabilità.
-- Quando la richiesta è completata, chiudi subito.
+- Quando la richiesta è completata davvero e il cliente non aggiunge altro, chiudi subito.
 - Il passaggio al ristorante è una ultima risorsa: usalo solo nei casi esplicitamente previsti sotto.
 
 Personality & Tone
@@ -640,6 +1045,9 @@ Conversation Flow
   - per domande sul menu rispondi solo:
     "Offriamo cucina tradizionale milanese: risotti, cotoletta,
     ossobuco e altre specialità lombarde."
+  - Dopo una risposta informativa completa, fai una sola breve apertura naturale, per esempio:
+    "Se vuole, posso anche aiutarla con una prenotazione."
+  - Se il cliente non aggiunge altro o resta in silenzio, chiudi con cortesia.
 - Non comunicare mai il codice di conferma.
 - Se devi leggere numeri, codici, iniziali o lettere, scandiscili elemento per elemento con piccole pause naturali.
 - Per orari e numeri di telefono letti ad alta voce, pronuncia chiaramente cifra per cifra quando serve evitare errori.
@@ -688,7 +1096,6 @@ Safety & Escalation
 - Non escalare se puoi ancora risolvere con una sola domanda mirata.
 - Formula: "La metto in contatto con il ristorante."
 - Dopo un'azione completata con successo, chiudi subito con cortesia.
-- Dopo una risposta informativa completa, chiudi subito con cortesia.
 
 Unclear Audio
 - Se non capisci qualcosa, chiedi solo la parte mancante.
@@ -714,6 +1121,9 @@ def build_realtime_tools(
             "description": (
                 "Verifica la disponibilità per una richiesta di prenotazione. "
                 "Usalo SOLO quando il cliente ha esplicitamente detto data E numero di persone. "
+                "Conta adulti e bambini nel totale coperti. "
+                "Se il cliente chiede solo opzioni o disponibilita, puoi usare questo tool "
+                "ma NON trasformare la richiesta in prenotazione. "
                 "NON chiamare con dati inventati o assunti."
             ),
             "parameters": {
@@ -774,6 +1184,8 @@ def build_realtime_tools(
                 "2) tutti i dati raccolti ESPLICITAMENTE dal cliente "
                 "(data, ora, persone, nome), "
                 "3) conferma esplicita del cliente (sì/confermo). "
+                "Se il cliente ha chiesto solo opzioni o disponibilita, NON usare questo tool "
+                "finché non chiede esplicitamente di prenotare. "
                 "NON usare dati inventati o assunti. "
                 "Se il tool restituisce conferma mancante, NON richiamarlo "
                 "finché il cliente non dice un sì chiaro nel turno successivo."
@@ -987,6 +1399,7 @@ def _build_tool_scope_update(
     return {
         "type": "session.update",
         "session": {
+            "type": "realtime",
             "tools": build_realtime_tools(tool_names=tool_names),
             "tool_choice": overrides.tool_choice,
         },
@@ -1000,11 +1413,6 @@ def _buffer_twilio_media_payload(
     buffered_audio: bytearray,
     buffered_packets: int,
 ) -> int:
-    if state.initial_greeting_in_progress or (
-        state.initial_greeting_grace_until and datetime.now(UTC) < state.initial_greeting_grace_until
-    ):
-        state.dropped_input_audio_packets += 1
-        return buffered_packets
     try:
         decoded = base64.b64decode(payload)
     except Exception:
@@ -1156,7 +1564,12 @@ def studio_checklist(session_update: dict[str, Any]) -> list[dict[str, str]]:
     return checks
 
 
-def studio_prompt_diagnostics(prompt: str) -> list[dict[str, str]]:
+def studio_prompt_diagnostics(
+    prompt: str,
+    *,
+    restaurant: Restaurant | None = None,
+    effective_overrides: RealtimeSessionOverrides | None = None,
+) -> list[dict[str, str]]:
     normalized = prompt.strip()
     lower_prompt = normalized.lower()
     diagnostics = [
@@ -1231,6 +1644,42 @@ def studio_prompt_diagnostics(prompt: str) -> list[dict[str, str]]:
             "detail": "Il modello segue bene esempi brevi di frasi target per identita, preamboli ed escalation.",
         },
     ]
+    if restaurant is not None:
+        expected_closures = json.dumps(restaurant.weekly_closures or [], ensure_ascii=False).lower()
+        expected_hours = json.dumps(restaurant.opening_hours or {}, ensure_ascii=False).lower()
+        expected_turni = json.dumps(restaurant.turni or [], ensure_ascii=False).lower()
+        context_drift = (
+            expected_closures not in lower_prompt
+            or expected_hours not in lower_prompt
+            or expected_turni not in lower_prompt
+        )
+        diagnostics.append(
+            {
+                "label": "Restaurant context drift",
+                "status": "warn" if context_drift else "good",
+                "detail": (
+                    "Il prompt live dovrebbe riflettere chiusure, orari e turni del ristorante salvati nel database."
+                ),
+            }
+        )
+    multilingual_prompt = (
+        "segui la lingua del cliente" in lower_prompt
+        or "cambia solo la lingua della risposta" in lower_prompt
+    )
+    fixed_input_language = (
+        effective_overrides.input_language.strip().lower()
+        if effective_overrides and effective_overrides.input_language
+        else ""
+    )
+    diagnostics.append(
+        {
+            "label": "Multilingual runtime conflict",
+            "status": "warn" if multilingual_prompt and fixed_input_language else "good",
+            "detail": (
+                "Se il prompt segue la lingua del cliente, evita di fissare input_language salvo scelta intenzionale."
+            ),
+        }
+    )
     return diagnostics
 
 
@@ -1277,7 +1726,7 @@ def studio_recommendations(
             "label": "Flexible input language",
             "status": (
                 "good"
-                if audio_input.get("transcription", {}).get("language") in {None, "", "it", "en"}
+                if audio_input.get("transcription", {}).get("language") in {None, ""}
                 else "warn"
             ),
             "detail": (
@@ -1376,8 +1825,53 @@ def _text_has_confirmation_cue(text: str) -> bool:
 
 
 def _text_is_affirmative(text: str) -> bool:
-    lowered = text.lower()
-    return any(word in lowered for word in AFFIRMATIVE_WORDS)
+    lowered = _normalized_text(text)
+    return any(re.search(rf"\b{re.escape(word)}\b", lowered) for word in AFFIRMATIVE_WORDS)
+
+
+def _looks_like_name_confirmation_request(text: str) -> bool:
+    lowered = _normalized_text(text)
+    if not any(
+        cue in lowered
+        for cue in {
+            "corretto",
+            "corretta",
+            "corretto cosi",
+            "correct",
+            "correcto",
+            "esatto",
+            "giusto",
+            "is that right",
+            "is that correct",
+            "right",
+        }
+    ):
+        return False
+    if any(
+        cue in lowered
+        for cue in {
+            "prenot",
+            "reservation",
+            "booking",
+            "tavolo",
+            "table",
+            "persone",
+            "people",
+            "party",
+            "alle ",
+            "ore ",
+            "giorno",
+            "day",
+            "domani",
+            "sabato",
+            "venerdi",
+            "saturday",
+            "tonight",
+        }
+    ):
+        return False
+    name_tokens = re.findall(r"[A-Za-zÀ-ÿ]{2,}", text)
+    return len(name_tokens) >= 2
 
 
 def _ingest_assistant_transcript(state: RealtimeCallState, transcript: str) -> None:
@@ -1389,14 +1883,34 @@ def _ingest_assistant_transcript(state: RealtimeCallState, transcript: str) -> N
     after a write tool actually runs.
     """
     state.last_assistant_transcript = transcript
+    state.last_requested_field = _detect_requested_field(transcript)
+    if state.last_requested_field == "customer_name" and _looks_like_name_confirmation_request(transcript):
+        state.pending_confirmation_kind = "name"
+        return
     if _text_has_confirmation_cue(transcript):
         state.awaiting_confirmation = True
+        state.pending_confirmation_kind = "write"
 
 
 def _ingest_user_transcript(state: RealtimeCallState, transcript: str) -> None:
     """Record a completed user turn and mark confirmation as granted if applicable."""
     state.last_user_transcript = transcript
-    if state.awaiting_confirmation and _text_is_affirmative(transcript):
+    state.intent = _detect_intent(transcript, state.intent)
+    _update_booking_context(state, transcript)
+
+    if state.last_requested_field and not _reply_matches_field(transcript, state.last_requested_field):
+        _mark_invalid_field_attempt(state, state.last_requested_field)
+    elif state.last_requested_field:
+        _clear_invalid_field_attempt(state, state.last_requested_field)
+        if state.last_requested_field == "confirmation":
+            state.confirmation_guard_transcript = transcript.strip().lower()
+
+    if (
+        state.awaiting_confirmation
+        and state.pending_confirmation_kind == "write"
+        and _text_is_affirmative(transcript)
+        and state.last_user_reply_valid
+    ):
         state.confirmation_granted = True
 
 
@@ -1413,7 +1927,7 @@ def _ingest_input_audio_transcription_delta(
     key = item_id or "unknown"
     combined = f"{state.pending_user_audio_transcripts.get(key, '')}{delta}".strip()
     state.pending_user_audio_transcripts[key] = combined
-    if state.awaiting_confirmation and _text_is_affirmative(combined):
+    if state.awaiting_confirmation and state.pending_confirmation_kind == "write" and _text_is_affirmative(combined):
         state.confirmation_granted = True
     return combined
 
@@ -1421,10 +1935,15 @@ def _ingest_input_audio_transcription_delta(
 def _reset_confirmation_state(state: RealtimeCallState) -> None:
     state.awaiting_confirmation = False
     state.confirmation_granted = False
+    state.pending_confirmation_kind = None
 
 
 def _write_confirmation_granted(state: RealtimeCallState) -> bool:
     return state.confirmation_granted
+
+
+def _should_ignore_post_write_user_turn(state: RealtimeCallState) -> bool:
+    return state.terminal_write_success
 
 
 def _sync_call_update(
@@ -1442,6 +1961,9 @@ def _sync_call_update(
             if field == "extra_data" and isinstance(value, dict):
                 current = call.extra_data if isinstance(call.extra_data, dict) else {}
                 setattr(call, field, {**current, **value})
+                continue
+            # Never overwrite a non-null booking_id with null
+            if field == "booking_id" and value is None and call.booking_id is not None:
                 continue
             setattr(call, field, value)
         db.add(call)
@@ -1483,17 +2005,32 @@ def _sync_dispatch_tool(
     try:
         try:
             if tool_name == "check_availability":
-                return check_availability(
+                if state.last_requested_field and not state.last_user_reply_valid:
+                    return _guard_failed_result(
+                        state,
+                        reason="L'ultima risposta del cliente non chiarisce il dettaglio richiesto.",
+                        assistant_instruction=(
+                            "Chiedi di ripetere solo il dettaglio mancante. "
+                            "Se anche il secondo tentativo non e chiaro, trasferisci al ristorante."
+                        ),
+                    )
+                normalized_arguments = _normalize_check_arguments(state, arguments)
+                requested_time = (
+                    time.fromisoformat(normalized_arguments["time_preference"])
+                    if normalized_arguments.get("time_preference")
+                    else None
+                )
+                result = check_availability(
                     db,
                     restaurant=restaurant,
-                    booking_date=date.fromisoformat(arguments["date"]),
-                    requested_time=(
-                        time.fromisoformat(arguments["time_preference"])
-                        if arguments.get("time_preference")
-                        else None
-                    ),
-                    party_size=int(arguments["party_size"]),
+                    booking_date=date.fromisoformat(normalized_arguments["date"]),
+                    requested_time=requested_time,
+                    party_size=int(normalized_arguments["party_size"]),
                 )
+                result["normalized_party_size"] = int(normalized_arguments["party_size"])
+                if requested_time is not None:
+                    result["normalized_time"] = requested_time.isoformat()
+                return result
 
             if tool_name == "find_booking":
                 bookings = find_bookings_for_caller(
@@ -1508,9 +2045,19 @@ def _sync_dispatch_tool(
                 }
 
             if tool_name == "create_booking":
+                if state.intent == "availability_only":
+                    return _guard_failed_result(
+                        state,
+                        reason="Il cliente ha chiesto solo disponibilita o opzioni, non una prenotazione.",
+                        assistant_instruction=(
+                            "Rispondi con la disponibilita richiesta. Chiedi il nome o conferma finale "
+                            "solo se il cliente chiede esplicitamente di prenotare."
+                        ),
+                    )
                 if not _write_confirmation_granted(state):
                     return _missing_confirmation_result(state)
                 _reset_confirmation_state(state)
+                normalized_arguments = _normalize_create_arguments(state, arguments)
                 existing_bookings = find_bookings_for_caller(
                     db,
                     restaurant_id=restaurant.id,
@@ -1521,8 +2068,8 @@ def _sync_dispatch_tool(
                     (
                         booking
                         for booking in existing_bookings
-                        if str(booking.date) == str(arguments["date"])
-                        and str(booking.time) == str(arguments["time"])
+                        if str(booking.date) == str(normalized_arguments["date"])
+                        and str(booking.time) == str(normalized_arguments["time"])
                         and booking.status in ACTIVE_STATUSES
                     ),
                     None,
@@ -1547,14 +2094,16 @@ def _sync_dispatch_tool(
                     db,
                     payload=BookingCreate(
                         restaurant_id=restaurant.id,
-                        date=date.fromisoformat(arguments["date"]),
-                        time=time.fromisoformat(arguments["time"]),
-                        party_size=int(arguments["party_size"]),
+                        date=date.fromisoformat(normalized_arguments["date"]),
+                        time=time.fromisoformat(normalized_arguments["time"]),
+                        party_size=int(normalized_arguments["party_size"]),
                         customer_name=str(
-                            arguments.get("customer_name") or arguments.get("name") or ""
+                            normalized_arguments.get("customer_name")
+                            or normalized_arguments.get("name")
+                            or ""
                         ).strip(),
                         customer_phone=state.caller_phone,
-                        special_requests=arguments.get("special_requests"),
+                        special_requests=normalized_arguments.get("special_requests"),
                         source=BookingSource.ai_phone,
                         status=BookingStatus.confirmed,
                     ),
@@ -1563,10 +2112,27 @@ def _sync_dispatch_tool(
                 if error:
                     db.rollback()
                     return {"success": False, **error}
+                call = db.scalar(select(CallLog).where(CallLog.twilio_call_sid == state.twilio_call_sid))
+                if call:
+                    call.booking_id = booking.id
+                    db.add(call)
                 db.commit()
                 state.outcome = "booking_created"
+                state.terminal_write_success = True
                 state.end_call_after_response = True
-                return {"success": True, "confirmation_code": booking.confirmation_code}
+                state.current_booking_id = booking.id
+                state.booking_context.setdefault("date", normalized_arguments["date"])
+                state.booking_context.setdefault("requested_time", normalized_arguments["time"])
+                state.booking_context.setdefault("party_size", int(normalized_arguments["party_size"]))
+                state.booking_context.setdefault(
+                    "customer_name",
+                    str(normalized_arguments.get("customer_name") or normalized_arguments.get("name") or "").strip(),
+                )
+                return {
+                    "success": True,
+                    "confirmation_code": booking.confirmation_code,
+                    "booking_id": booking.id,
+                }
 
             if tool_name == "modify_booking":
                 if not _write_confirmation_granted(state):
@@ -1595,7 +2161,9 @@ def _sync_dispatch_tool(
                     return {"success": False, **error}
                 db.commit()
                 state.outcome = "booking_modified"
+                state.terminal_write_success = True
                 state.end_call_after_response = True
+                state.current_booking_id = updated.id
                 return {"success": True, "updated_booking": updated.id}
 
             if tool_name == "cancel_booking":
@@ -1615,7 +2183,9 @@ def _sync_dispatch_tool(
                 db.add(booking)
                 db.commit()
                 state.outcome = "booking_cancelled"
+                state.terminal_write_success = True
                 state.end_call_after_response = True
+                state.current_booking_id = booking.id
                 return {"success": True}
 
             if tool_name == "escalate_to_human":
@@ -1744,6 +2314,10 @@ async def _send_runtime_context_message(realtime_ws: Any, restaurant: Restaurant
 
 
 def _current_tool_scope(state: RealtimeCallState) -> tuple[str, ...]:
+    if state.should_escalate:
+        return ("escalate_to_human",)
+    if state.terminal_write_success:
+        return ("escalate_to_human",)
     if state.confirmation_granted:
         return FULL_TOOL_NAMES
     if state.end_call_after_response:
@@ -1783,15 +2357,30 @@ def _finish_initial_greeting(state: RealtimeCallState) -> None:
     if not state.initial_greeting_in_progress:
         return
     state.initial_greeting_in_progress = False
-    # Leave a short post-greeting gate to avoid line echo being transcribed as
-    # a phantom first user turn on PSTN calls.
-    state.initial_greeting_grace_until = datetime.now(UTC) + timedelta(milliseconds=600)
+    state.initial_greeting_grace_until = None
+
+
+def _silent_response_retry_allowed(
+    state: RealtimeCallState,
+    *,
+    initial_response_phase: bool,
+) -> bool:
+    if state.pending_tool_followup:
+        return True
+    return initial_response_phase and not state.caller_speech_detected
 
 
 async def _truncate_unplayed_audio(state: RealtimeCallState, realtime_ws: Any, websocket: WebSocket) -> None:
     if not state.last_audio_item_id or state.last_audio_bytes_sent <= 0 or not state.stream_sid:
         return
     await websocket.send_json({"event": "clear", "streamSid": state.stream_sid})
+    state.interruption_events.append(
+        {
+            "event": "twilio_audio_cleared",
+            "timestamp": datetime.now(UTC).isoformat(),
+            "stream_sid": state.stream_sid,
+        }
+    )
     audio_end_ms = int((state.last_audio_bytes_sent / 8000) * 1000)
     if audio_end_ms <= 0:
         return
@@ -1804,6 +2393,15 @@ async def _truncate_unplayed_audio(state: RealtimeCallState, realtime_ws: Any, w
                 "audio_end_ms": audio_end_ms,
             }
         )
+    )
+    state.interruption_events.append(
+        {
+            "event": "assistant_audio_truncated",
+            "timestamp": datetime.now(UTC).isoformat(),
+            "item_id": state.last_audio_item_id,
+            "content_index": state.last_audio_content_index,
+            "audio_end_ms": audio_end_ms,
+        }
     )
     state.last_audio_item_id = None
     state.last_audio_content_index = 0
@@ -1889,12 +2487,15 @@ async def _run_silent_response_watchdog(
     caller_phone: str,
     generation: int,
 ) -> None:
+    initial_response_phase = state.initial_greeting_in_progress
     await asyncio.sleep(SILENT_RESPONSE_WATCHDOG_SECONDS)
     if generation != state.response_watchdog_generation:
         return
     if not state.response_in_progress or state.response_audio_started:
         return
     if state.silent_response_retries >= MAX_SILENT_RESPONSE_RETRIES:
+        return
+    if not _silent_response_retry_allowed(state, initial_response_phase=initial_response_phase):
         return
     state.silent_response_retries += 1
     state.response_in_progress = False
@@ -2036,8 +2637,29 @@ async def bridge_twilio_media_stream(
                         continue
 
                     if event_type == "input_audio_buffer.speech_started":
+                        state.caller_speech_detected = True
+                        state.response_watchdog_generation += 1
+                        state.interruption_events.append(
+                            {
+                                "event": "caller_speech_started",
+                                "timestamp": datetime.now(UTC).isoformat(),
+                                "response_in_progress": state.response_in_progress,
+                                "assistant_is_speaking": state.assistant_is_speaking,
+                                "initial_greeting_in_progress": state.initial_greeting_in_progress,
+                            }
+                        )
+                        if _should_ignore_post_write_user_turn(state):
+                            continue
                         if state.response_in_progress:
+                            state.response_in_progress = False
                             await realtime_ws.send(json.dumps({"type": "response.cancel"}))
+                            state.interruption_events.append(
+                                {
+                                    "event": "response_cancel_sent",
+                                    "timestamp": datetime.now(UTC).isoformat(),
+                                    "last_audio_item_id": state.last_audio_item_id,
+                                }
+                            )
                         await _truncate_unplayed_audio(state, realtime_ws, websocket)
                         continue
 
@@ -2054,17 +2676,18 @@ async def bridge_twilio_media_stream(
                         partial_transcript = state.pending_user_audio_transcripts.pop(item_id, "")
                         transcript = str(event.get("transcript") or partial_transcript).strip()
                         if transcript:
+                            if _should_ignore_post_write_user_turn(state):
+                                continue
                             _ingest_user_transcript(state, transcript)
                             _record_conversation_turn(state, role="user", text=transcript, item_id=item_id)
                             _append_transcript_line(state, "Cliente", transcript)
-                            if state.confirmation_granted:
-                                await _sync_tool_scope(
-                                    realtime_ws,
-                                    restaurant,
-                                    state,
-                                    caller_phone=from_number,
-                                    output_modalities=("audio",),
-                                )
+                            await _sync_tool_scope(
+                                realtime_ws,
+                                restaurant,
+                                state,
+                                caller_phone=from_number,
+                                output_modalities=("audio",),
+                            )
                             if event.get("usage"):
                                 state.transcription_events.append(
                                     {
@@ -2229,13 +2852,13 @@ async def bridge_twilio_media_stream(
                         continue
 
                     if event_type == "response.done":
+                        initial_response_phase = state.initial_greeting_in_progress
                         hangup_delay_ms = 0
                         if state.end_call_after_response and not state.pending_tool_followup:
                             # Most audio has already been played by the time response.done
                             # arrives, so a short buffer is enough to avoid clipping the
                             # goodbye while still ending the call promptly.
                             hangup_delay_ms = min(max(int((state.last_audio_bytes_sent / 8000) * 120), 400), 1200)
-                            state.end_call_after_response = False
                         state.response_in_progress = False
                         state.assistant_is_speaking = False
                         _finish_initial_greeting(state)
@@ -2247,8 +2870,11 @@ async def bridge_twilio_media_stream(
                             state.last_response_usage = response_payload["usage"]
                         if (
                             not state.response_audio_started
-                            and not state.pending_tool_followup
                             and state.silent_response_retries < MAX_SILENT_RESPONSE_RETRIES
+                            and _silent_response_retry_allowed(
+                                state,
+                                initial_response_phase=initial_response_phase,
+                            )
                         ):
                             state.silent_response_retries += 1
                             await _send_response_create(realtime_ws, output_modalities=("audio",))
@@ -2260,6 +2886,20 @@ async def bridge_twilio_media_stream(
                             state=state,
                             call_sid=call_sid,
                         )
+                        if (
+                            hangup_delay_ms
+                            and state.terminal_write_success
+                            and not state.twilio_call_sid.startswith("studio-")
+                        ):
+                            asyncio.create_task(
+                                _end_twilio_call_after_delay(
+                                    restaurant=restaurant,
+                                    call_sid=state.twilio_call_sid,
+                                    delay_ms=hangup_delay_ms,
+                                )
+                            )
+                            state.end_call_after_response = False
+                            continue
                         if state.pending_tool_followup:
                             state.pending_tool_followup = False
                             await _send_response_create(realtime_ws, output_modalities=("audio",))
@@ -2271,6 +2911,7 @@ async def bridge_twilio_media_stream(
                                     delay_ms=hangup_delay_ms,
                                 )
                             )
+                            state.end_call_after_response = False
                         continue
 
                     if event_type == "session.updated":
@@ -2353,7 +2994,8 @@ async def bridge_twilio_media_stream(
             call_status=state.call_status,
             outcome=state.outcome,
             transcript_preview="\n".join(state.transcript_lines[-20:]),
-            summary="Chiamata interrotta per errore realtime.",
+            summary=_build_final_call_summary(state),
+            booking_id=state.current_booking_id,
             extra_data={
                 "openai_session_id": state.openai_session_id,
                 "caller_phone": from_number,
@@ -2361,7 +3003,8 @@ async def bridge_twilio_media_stream(
                 "tool_events": state.tool_events,
                 "response_usage": state.last_response_usage,
                 "transcription_events": state.transcription_events,
-                "conversation_summary": state.latest_summary,
+                "interruption_events": state.interruption_events,
+                "conversation_summary": _build_final_conversation_summary(state),
                 "dropped_input_audio_packets": state.dropped_input_audio_packets,
                 "transferred_to_restaurant": transferred,
                 "error": str(exc),
@@ -2382,6 +3025,18 @@ async def bridge_twilio_media_stream(
 
     state.call_status = "successful"
     state.outcome = _successful_call_outcome(state)
+    # Fallback: if current_booking_id was not set but a write tool succeeded,
+    # extract the booking_id from tool events to avoid losing the linkage.
+    final_booking_id = state.current_booking_id
+    if not final_booking_id:
+        for tool_event in reversed(state.tool_events):
+            if (
+                tool_event.get("tool") in {"create_booking", "modify_booking", "cancel_booking"}
+                and isinstance(tool_event.get("result"), dict)
+                and tool_event["result"].get("success") is True
+            ):
+                final_booking_id = tool_event["result"].get("booking_id")
+                break
     await _update_call(
         db_factory,
         call_sid=call_sid,
@@ -2389,7 +3044,8 @@ async def bridge_twilio_media_stream(
         call_status=state.call_status,
         outcome=state.outcome,
         transcript_preview="\n".join(state.transcript_lines[-20:]),
-        summary=state.transcript_lines[-1][:500] if state.transcript_lines else "Chiamata completata.",
+        summary=_build_final_call_summary(state),
+        booking_id=final_booking_id,
         extra_data={
             "openai_session_id": state.openai_session_id,
             "caller_phone": from_number,
@@ -2397,7 +3053,8 @@ async def bridge_twilio_media_stream(
             "tool_events": state.tool_events,
             "response_usage": state.last_response_usage,
             "transcription_events": state.transcription_events,
-            "conversation_summary": state.latest_summary,
+            "interruption_events": state.interruption_events,
+            "conversation_summary": _build_final_conversation_summary(state),
             "dropped_input_audio_packets": state.dropped_input_audio_packets,
         },
         duration_seconds=max(int((datetime.now(UTC) - state.started_at).total_seconds()), 0),

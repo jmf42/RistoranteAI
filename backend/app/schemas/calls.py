@@ -16,6 +16,7 @@ class CallLogRead(AppBaseModel):
     booking_id: str | None = None
     summary: str
     transcript_preview: str | None = None
+    caller_phone: str | None = None
 
 
 class TranscriptResponse(AppBaseModel):

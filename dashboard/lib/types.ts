@@ -108,6 +108,7 @@ export interface CallLog {
   booking_id: string | null;
   summary: string;
   transcript_preview: string | null;
+  caller_phone: string | null;
 }
 
 export interface TranscriptResponse {

@@ -17,6 +17,7 @@ from app.api.deps import (
     require_roles,
 )
 from app.core.observability import json_log
+from app.core.security import mask_phone
 from app.models import CallLog, User
 from app.schemas.calls import CallLogRead, CallSyncResponse, TranscriptResponse
 
@@ -24,6 +25,8 @@ router = APIRouter(prefix="/calls", tags=["calls"])
 
 
 def _call_to_read(call: CallLog) -> CallLogRead:
+    raw_phone: str | None = (call.extra_data or {}).get("caller_phone")
+    masked = mask_phone(raw_phone) if raw_phone else None
     return CallLogRead(
         id=call.id,
         restaurant_id=call.restaurant_id,
@@ -37,6 +40,7 @@ def _call_to_read(call: CallLog) -> CallLogRead:
         booking_id=call.booking_id,
         summary=call.summary,
         transcript_preview=call.transcript_preview,
+        caller_phone=masked,
     )
 
 
