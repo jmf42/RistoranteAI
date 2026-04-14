@@ -27,43 +27,6 @@ from app.schemas.tools import ModifyBookingChanges
 from app.services.availability import ACTIVE_STATUSES, check_availability
 from app.services.bookings import create_booking, find_bookings_for_caller, update_booking
 
-AFFIRMATIVE_WORDS = {
-    "si",
-    "sì",
-    "certo",
-    "confermo",
-    "confermata",
-    "accetta",
-    "accetto",
-    "va bene",
-    "va benissimo",
-    "ok",
-    "okay",
-    "esatto",
-    "perfetto",
-    "perfetta",
-    "d'accordo",
-    "proceda",
-    "procedi",
-    "faccia pure",
-    "vai pure",
-}
-# Phrases an assistant turn may contain when it is explicitly asking the customer
-# to confirm a write (booking, modification, cancellation) or narrating the action
-# it is about to perform. Kept as substrings; "conferma" covers "conferma?",
-# "confermo", "confermi", "confermato".
-CONFIRMATION_CUES = {
-    "conferma",
-    "confermo",
-    "confermi",
-    "prenoto",
-    "le confermo",
-    "procedo",
-    "cancello",
-    "modifico",
-    "va bene?",
-    "prenotazione",
-}
 SUPPORTED_REALTIME_MODELS = {"gpt-realtime", "gpt-realtime-1.5", "gpt-realtime-mini"}
 SUPPORTED_REALTIME_VOICES = {
     "alloy",
@@ -383,11 +346,6 @@ class RealtimeCallState:
     transcription_events: list[dict[str, Any]] = field(default_factory=list)
     pending_assistant_audio_transcript: str = ""
     pending_tool_followup: bool = False
-    missing_confirmation_failures: int = 0
-    confirmation_guard_transcript: str = ""
-    awaiting_confirmation: bool = False
-    confirmation_granted: bool = False
-    pending_confirmation_kind: Literal["write", "name"] | None = None
     pending_user_audio_transcripts: dict[str, str] = field(default_factory=dict)
     end_call_after_response: bool = False
     terminal_write_success: bool = False
@@ -494,11 +452,7 @@ def _transcription_prompt(restaurant: Restaurant) -> str:
     # IMPORTANT: Do NOT include restaurant name, address or other contextual data
     # in the transcription prompt. Whisper-family models echo prompt text verbatim
     # when audio is unclear, causing garbage transcriptions that confuse the agent.
-    return (
-        "Trascrivi in modo naturale nella lingua parlata dal cliente. Priorità assoluta a nomi propri, "
-        "numeri di persone, orari, date e sì/no espliciti. Non inventare parole. "
-        "Non trasformare rumori, lettere isolate o frammenti senza senso in dati di prenotazione."
-    )
+    return "Prenotazione telefonica. Trascrivi quello che dice il cliente."
 
 
 def _extract_message_text(output: dict[str, Any]) -> str:
@@ -656,8 +610,6 @@ def _detect_requested_field(transcript: str) -> str | None:
     lowered = _normalized_text(transcript)
     if _looks_like_name_confirmation_request(lowered):
         return "customer_name"
-    if _text_has_confirmation_cue(lowered):
-        return "confirmation"
     if "seggiolon" in lowered or "high chair" in lowered:
         return "high_chairs"
     if "nome completo" in lowered or "name" in lowered:
@@ -698,8 +650,6 @@ def _reply_matches_field(text: str, field_name: str | None) -> bool:
     if not field_name:
         return True
     lowered = _normalized_text(text)
-    if field_name == "confirmation":
-        return _text_is_affirmative(lowered) or _text_is_negative(lowered)
     if field_name == "service_slot":
         return _slot_choice_from_text(lowered) is not None
     if field_name == "booking_details":
@@ -902,34 +852,6 @@ def _successful_call_outcome(state: RealtimeCallState) -> str:
     return state.outcome
 
 
-def _missing_confirmation_result(state: RealtimeCallState) -> dict[str, Any]:
-    current_transcript = state.last_user_transcript.strip().lower()
-    if current_transcript and current_transcript != state.confirmation_guard_transcript:
-        state.confirmation_guard_transcript = current_transcript
-        state.missing_confirmation_failures = 1
-    else:
-        state.missing_confirmation_failures += 1
-    if state.last_requested_field == "confirmation":
-        _mark_invalid_field_attempt(state, "confirmation")
-    should_escalate = state.missing_confirmation_failures >= 2 or state.should_escalate
-    return {
-        "success": False,
-        "reason": "Conferma esplicita del cliente mancante.",
-        "needs_explicit_yes": True,
-        "retry_write": False,
-        "should_escalate": should_escalate,
-        "assistant_instruction": (
-            "Se la conferma è ambigua, chiedi una sola volta in modo naturale e breve. "
-            "Se resta ambigua, trasferisci al ristorante."
-        ),
-        "next_step": (
-            "Chiedi una sola conferma finale breve in modo naturale. Se non è ancora chiara, passa a un umano."
-            if should_escalate
-            else "Chiedi una sola conferma finale breve nel turno successivo. Non richiamare subito il tool."
-        ),
-    }
-
-
 def build_realtime_instructions(
     restaurant: Restaurant,
     *,
@@ -1064,17 +986,14 @@ Phone Rules
 - Ripetilo con la pronuncia più naturale possibile senza cambiare il comportamento del servizio.
 
 Write Action Rules
-- Per create_booking, modify_booking e cancel_booking serve sempre un sì esplicito del cliente.
-- Non eseguire azioni di scrittura nello stesso turno in cui fai la domanda di conferma.
-- Non eseguire due conferme consecutive.
-- Se il cliente non dice un sì chiaro, non chiamare il tool di scrittura.
-- Considera come conferma esplicita anche formule naturali come:
-  "sì", "certo", "va bene", "perfetto", "d'accordo", "confermo", "proceda".
-- Se la conferma è ambigua, chiedi una sola volta in modo naturale e breve.
+- Prima di create_booking, modify_booking o cancel_booking: riassumi i dettagli in una frase e chiedi conferma.
+- Esegui il tool solo nel turno successivo a una conferma chiara del cliente.
+- Se il cliente ha già confermato chiaramente, non chiedere di nuovo la stessa conferma.
+- Se cambiano data, ora o numero persone dopo check_availability, rifai check_availability prima di scrivere.
+- Se la conferma è ambigua, riformula una sola volta in modo naturale e breve.
 - Non dire mai al cliente quali parole esatte deve usare per confermare.
 - Non usare formule rigide come "Mi serve un sì chiaro" o "basta dire sì".
-- Se hai già chiesto la conferma una volta e ancora non è chiara, non insistere:
-  passa a un umano.
+- Se la conferma resta ambigua dopo una sola richiesta breve, passa a un umano.
 
 Duplicate Prevention
 - Non creare mai prenotazioni duplicate.
@@ -1183,12 +1102,12 @@ def build_realtime_tools(
                 "REQUISITI: 1) check_availability già chiamato con esito positivo, "
                 "2) tutti i dati raccolti ESPLICITAMENTE dal cliente "
                 "(data, ora, persone, nome), "
-                "3) conferma esplicita del cliente (sì/confermo). "
+                "3) una conferma chiara del cliente nel turno successivo al riepilogo finale. "
                 "Se il cliente ha chiesto solo opzioni o disponibilita, NON usare questo tool "
                 "finché non chiede esplicitamente di prenotare. "
                 "NON usare dati inventati o assunti. "
-                "Se il tool restituisce conferma mancante, NON richiamarlo "
-                "finché il cliente non dice un sì chiaro nel turno successivo."
+                "Se il cliente cambia data, ora o numero persone dopo la verifica, "
+                "rifai check_availability prima di usare questo tool."
             ),
             "parameters": {
                 "type": "object",
@@ -1232,8 +1151,9 @@ def build_realtime_tools(
             "name": "modify_booking",
             "description": (
                 "Modifica una prenotazione esistente. "
-                "Usalo solo dopo conferma esplicita del cliente e solo per i campi "
-                "che cambiano davvero. Se manca un sì chiaro, non ripetere subito il tool."
+                "Usalo solo dopo un riepilogo finale e una conferma chiara del cliente, "
+                "e solo per i campi che cambiano davvero. "
+                "Se cambiano data, ora o coperti, verifica prima la nuova disponibilita."
             ),
             "parameters": {
                 "type": "object",
@@ -1273,8 +1193,7 @@ def build_realtime_tools(
             "name": "cancel_booking",
             "description": (
                 "Cancella una prenotazione esistente. "
-                "Usalo solo dopo conferma esplicita del cliente. "
-                "Se manca un sì chiaro, non ripetere subito il tool."
+                "Usalo solo dopo un riepilogo finale e una conferma chiara del cliente."
             ),
             "parameters": {
                 "type": "object",
@@ -1558,7 +1477,7 @@ def studio_checklist(session_update: dict[str, Any]) -> list[dict[str, str]]:
         {
             "label": "Guard rail di scrittura",
             "status": "good",
-            "detail": "Create, modify e cancel sono bloccati lato server senza conferma valida.",
+            "detail": "Il prompt deve imporre una conferma separata prima dei tool di scrittura.",
         },
     ]
     return checks
@@ -1819,16 +1738,6 @@ def studio_practical_config_diff(
     ]
 
 
-def _text_has_confirmation_cue(text: str) -> bool:
-    lowered = text.lower()
-    return any(cue in lowered for cue in CONFIRMATION_CUES)
-
-
-def _text_is_affirmative(text: str) -> bool:
-    lowered = _normalized_text(text)
-    return any(re.search(rf"\b{re.escape(word)}\b", lowered) for word in AFFIRMATIVE_WORDS)
-
-
 def _looks_like_name_confirmation_request(text: str) -> bool:
     lowered = _normalized_text(text)
     if not any(
@@ -1875,25 +1784,11 @@ def _looks_like_name_confirmation_request(text: str) -> bool:
 
 
 def _ingest_assistant_transcript(state: RealtimeCallState, transcript: str) -> None:
-    """Record a completed assistant turn and update the confirmation state.
-
-    The confirmation flag is only set — never cleared here — so a short filler
-    utterance emitted alongside a tool call (e.g. "Un momento.") cannot erase the
-    confirmation cue from the previous assistant turn. The flags are reset only
-    after a write tool actually runs.
-    """
     state.last_assistant_transcript = transcript
     state.last_requested_field = _detect_requested_field(transcript)
-    if state.last_requested_field == "customer_name" and _looks_like_name_confirmation_request(transcript):
-        state.pending_confirmation_kind = "name"
-        return
-    if _text_has_confirmation_cue(transcript):
-        state.awaiting_confirmation = True
-        state.pending_confirmation_kind = "write"
 
 
 def _ingest_user_transcript(state: RealtimeCallState, transcript: str) -> None:
-    """Record a completed user turn and mark confirmation as granted if applicable."""
     state.last_user_transcript = transcript
     state.intent = _detect_intent(transcript, state.intent)
     _update_booking_context(state, transcript)
@@ -1902,16 +1797,6 @@ def _ingest_user_transcript(state: RealtimeCallState, transcript: str) -> None:
         _mark_invalid_field_attempt(state, state.last_requested_field)
     elif state.last_requested_field:
         _clear_invalid_field_attempt(state, state.last_requested_field)
-        if state.last_requested_field == "confirmation":
-            state.confirmation_guard_transcript = transcript.strip().lower()
-
-    if (
-        state.awaiting_confirmation
-        and state.pending_confirmation_kind == "write"
-        and _text_is_affirmative(transcript)
-        and state.last_user_reply_valid
-    ):
-        state.confirmation_granted = True
 
 
 def _ingest_input_audio_transcription_delta(
@@ -1920,30 +1805,27 @@ def _ingest_input_audio_transcription_delta(
     item_id: str | None,
     delta: str,
 ) -> str:
-    """Track incremental user transcription so short confirmations land early."""
     cleaned_delta = delta.strip()
     if not cleaned_delta:
         return ""
     key = item_id or "unknown"
     combined = f"{state.pending_user_audio_transcripts.get(key, '')}{delta}".strip()
     state.pending_user_audio_transcripts[key] = combined
-    if state.awaiting_confirmation and state.pending_confirmation_kind == "write" and _text_is_affirmative(combined):
-        state.confirmation_granted = True
     return combined
-
-
-def _reset_confirmation_state(state: RealtimeCallState) -> None:
-    state.awaiting_confirmation = False
-    state.confirmation_granted = False
-    state.pending_confirmation_kind = None
-
-
-def _write_confirmation_granted(state: RealtimeCallState) -> bool:
-    return state.confirmation_granted
 
 
 def _should_ignore_post_write_user_turn(state: RealtimeCallState) -> bool:
     return state.terminal_write_success
+
+
+def _write_tools_unlocked(state: RealtimeCallState) -> bool:
+    for event in reversed(state.tool_events):
+        result = event.get("result") if isinstance(event.get("result"), dict) else {}
+        if event.get("tool") == "check_availability" and result.get("available") is True:
+            return True
+        if event.get("tool") == "find_booking" and result.get("found") is True:
+            return True
+    return False
 
 
 def _sync_call_update(
@@ -2054,9 +1936,6 @@ def _sync_dispatch_tool(
                             "solo se il cliente chiede esplicitamente di prenotare."
                         ),
                     )
-                if not _write_confirmation_granted(state):
-                    return _missing_confirmation_result(state)
-                _reset_confirmation_state(state)
                 normalized_arguments = _normalize_create_arguments(state, arguments)
                 existing_bookings = find_bookings_for_caller(
                     db,
@@ -2135,9 +2014,6 @@ def _sync_dispatch_tool(
                 }
 
             if tool_name == "modify_booking":
-                if not _write_confirmation_granted(state):
-                    return _missing_confirmation_result(state)
-                _reset_confirmation_state(state)
                 changes = _modify_changes_from_arguments(arguments)
                 if not changes:
                     return {"success": False, "reason": "Nessuna modifica valida fornita."}
@@ -2167,9 +2043,6 @@ def _sync_dispatch_tool(
                 return {"success": True, "updated_booking": updated.id}
 
             if tool_name == "cancel_booking":
-                if not _write_confirmation_granted(state):
-                    return _missing_confirmation_result(state)
-                _reset_confirmation_state(state)
                 booking = db.scalar(
                     select(Booking).where(
                         Booking.restaurant_id == restaurant.id,
@@ -2318,7 +2191,7 @@ def _current_tool_scope(state: RealtimeCallState) -> tuple[str, ...]:
         return ("escalate_to_human",)
     if state.terminal_write_success:
         return ("escalate_to_human",)
-    if state.confirmation_granted:
+    if _write_tools_unlocked(state):
         return FULL_TOOL_NAMES
     if state.end_call_after_response:
         return ("escalate_to_human",)

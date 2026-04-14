@@ -34,7 +34,7 @@ def test_operator_can_preview_realtime_agent_blueprint(client, db_session):
     assert "Flexible input language" in recommendation_labels
 
 
-def test_operator_tool_sandbox_uses_backend_confirmation_guard(client, db_session):
+def test_operator_tool_sandbox_respects_runtime_tool_scope(client, db_session):
     login(client, email="operator@ristorante.ai")
     restaurant = db_session.scalar(select(Restaurant).where(Restaurant.slug == "trattoria-da-mario"))
 
@@ -58,7 +58,7 @@ def test_operator_tool_sandbox_uses_backend_confirmation_guard(client, db_sessio
     assert response.status_code == 200
     payload = response.json()
     assert payload["result"]["success"] is False
-    assert "Conferma esplicita" in payload["result"]["reason"]
+    assert "Tool non disponibile" in payload["result"]["reason"]
 
 
 def test_operator_can_run_realtime_text_simulation(client, db_session, monkeypatch):

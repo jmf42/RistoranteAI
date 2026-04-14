@@ -19,9 +19,9 @@ from app.services.openai_realtime import (
     _buffer_twilio_media_payload,
     _build_conversation_summary_prompt,
     _build_tool_scope_update,
+    _current_tool_scope,
     _finish_initial_greeting,
     _ingest_assistant_transcript,
-    _ingest_input_audio_transcription_delta,
     _ingest_user_transcript,
     _run_silent_response_watchdog,
     _runtime_context_message,
@@ -32,7 +32,6 @@ from app.services.openai_realtime import (
     _sync_call_update,
     _sync_dispatch_tool,
     _sync_end_twilio_call,
-    _write_confirmation_granted,
     build_realtime_tools,
     build_session_update,
     realtime_headers,
@@ -55,45 +54,57 @@ def _next_open_date_after(d: date) -> str:
     return candidate.isoformat()
 
 
-def test_create_booking_tool_requires_explicit_confirmation(db_session):
-    session_factory = sessionmaker(bind=db_session.get_bind(), autoflush=False, autocommit=False)
-    restaurant = db_session.scalar(select(Restaurant).where(Restaurant.slug == "trattoria-da-mario"))
+def test_write_tools_stay_locked_until_successful_read_step():
     state = RealtimeCallState(
         caller_phone="+393401112233",
-        twilio_call_sid="CA_confirm_guard",
-        last_user_transcript="sì",
-        last_assistant_transcript="Per che giorno, a che ora e per quante persone?",
+        twilio_call_sid="CA_write_scope_locked",
     )
 
-    result = _sync_dispatch_tool(
-        session_factory,
-        restaurant=restaurant,
-        state=state,
-        tool_name="create_booking",
-        arguments={
-            "date": _next_open_date(),
-            "time": "20:00:00",
-            "party_size": 2,
-            "customer_name": "Luca",
-        },
+    assert _current_tool_scope(state) == (
+        "check_availability",
+        "find_booking",
+        "escalate_to_human",
     )
 
-    assert result["success"] is False
-    assert "Conferma esplicita" in result["reason"]
+    state.tool_events.append(
+        {
+            "tool": "check_availability",
+            "arguments": {"date": _next_open_date(), "party_size": 2, "time_preference": "20:00:00"},
+            "result": {"available": False},
+        }
+    )
+
+    assert _current_tool_scope(state) == (
+        "check_availability",
+        "find_booking",
+        "escalate_to_human",
+    )
 
 
-def test_create_booking_tool_succeeds_after_confirmation(db_session):
+def test_write_tools_unlock_after_successful_availability_check(db_session):
     session_factory = sessionmaker(bind=db_session.get_bind(), autoflush=False, autocommit=False)
     restaurant = db_session.scalar(select(Restaurant).where(Restaurant.slug == "trattoria-da-mario"))
     booking_date = _next_open_date()
     state = RealtimeCallState(
         caller_phone="+393409991111",
-        twilio_call_sid="CA_confirm_ok",
+        twilio_call_sid="CA_availability_unlock",
     )
-    _ingest_assistant_transcript(
-        state, "5 aprile alle 20:00 per 2 persone a nome Luca. Confermo?"
+    state.tool_events.append(
+        {
+            "tool": "check_availability",
+            "arguments": {"date": booking_date, "party_size": 2, "time_preference": "20:00:00"},
+            "result": {"available": True, "slot": {"time": "20:00"}},
+        }
     )
-    _ingest_user_transcript(state, "Sì, confermo")
+
+    assert _current_tool_scope(state) == (
+        "check_availability",
+        "find_booking",
+        "create_booking",
+        "modify_booking",
+        "cancel_booking",
+        "escalate_to_human",
+    )
 
     result = _sync_dispatch_tool(
         session_factory,
@@ -286,7 +297,8 @@ def test_instructions_pin_italian_intonation_and_confirmation_rules(db_session):
     session_update = build_session_update(restaurant, caller_phone="+390000000000")
     instructions = session_update["session"]["instructions"]
     assert "intonazione italiana naturale" in instructions
-    assert "Se hai già chiesto la conferma una volta e ancora non è chiara" in instructions
+    assert "Se il cliente ha già confermato chiaramente, non chiedere di nuovo la stessa conferma." in instructions
+    assert "Esegui il tool solo nel turno successivo a una conferma chiara del cliente." in instructions
     assert "scandiscili elemento per elemento" in instructions
     assert "non tradurlo e non accorciarlo" in instructions
     assert "Data attuale:" not in instructions
@@ -391,7 +403,8 @@ def test_instructions_use_soft_confirmation_repair_without_magic_word_prompting(
     session_update = build_session_update(restaurant, caller_phone="+390000000000")
     instructions = session_update["session"]["instructions"]
 
-    assert "Se la conferma è ambigua, chiedi una sola volta in modo naturale e breve." in instructions
+    assert "Se la conferma è ambigua, riformula una sola volta in modo naturale e breve." in instructions
+    assert "Se la conferma resta ambigua dopo una sola richiesta breve, passa a un umano." in instructions
     assert "Non dire mai al cliente quali parole esatte deve usare" in instructions
     assert "Non usare formule rigide come" in instructions
 
@@ -452,75 +465,12 @@ def test_successful_call_outcome_marks_failed_write_attempt_as_tool_error() -> N
             {
                 "tool": "create_booking",
                 "arguments": {"date": "2026-04-09"},
-                "result": {"success": False, "reason": "Conferma esplicita del cliente mancante."},
+                "result": {"success": False, "reason": "Risulta già una prenotazione attiva."},
             }
         ]
     )
 
     assert _successful_call_outcome(state) == "tool_error"
-
-
-def test_create_booking_missing_confirmation_returns_no_retry_guidance(db_session):
-    session_factory = sessionmaker(bind=db_session.get_bind(), autoflush=False, autocommit=False)
-    restaurant = db_session.scalar(select(Restaurant).where(Restaurant.slug == "trattoria-da-mario"))
-    state = RealtimeCallState(
-        caller_phone="+393401112233",
-        twilio_call_sid="CA_confirm_guidance",
-        last_user_transcript="grazie",
-        last_assistant_transcript="Domani alle 21 per quattro persone a nome Luca. Confermo?",
-    )
-
-    result = _sync_dispatch_tool(
-        session_factory,
-        restaurant=restaurant,
-        state=state,
-        tool_name="create_booking",
-        arguments={
-            "date": _next_open_date(),
-            "time": "21:00:00",
-            "party_size": 4,
-            "customer_name": "Luca",
-        },
-    )
-
-    assert result["success"] is False
-    assert result["retry_write"] is False
-    assert result["needs_explicit_yes"] is True
-
-
-def test_missing_confirmation_escalates_on_repeated_same_transcript(db_session):
-    session_factory = sessionmaker(bind=db_session.get_bind(), autoflush=False, autocommit=False)
-    restaurant = db_session.scalar(select(Restaurant).where(Restaurant.slug == "trattoria-da-mario"))
-    booking_args = {
-        "date": _next_open_date(),
-        "time": "21:00:00",
-        "party_size": 4,
-        "customer_name": "Luca",
-    }
-    state = RealtimeCallState(
-        caller_phone="+393401112233",
-        twilio_call_sid="CA_confirm_repeat",
-        last_user_transcript="grazie",
-        last_assistant_transcript="Domani alle 21 per quattro persone a nome Luca. Confermo?",
-    )
-
-    first = _sync_dispatch_tool(
-        session_factory,
-        restaurant=restaurant,
-        state=state,
-        tool_name="create_booking",
-        arguments=booking_args,
-    )
-    second = _sync_dispatch_tool(
-        session_factory,
-        restaurant=restaurant,
-        state=state,
-        tool_name="create_booking",
-        arguments=booking_args,
-    )
-
-    assert first["should_escalate"] is False
-    assert second["should_escalate"] is True
 
 
 def test_duplicate_booking_tool_prefers_self_service_over_forced_escalation(db_session):
@@ -697,110 +647,30 @@ def test_conversation_summary_prompt_anchors_tool_outcomes():
     assert "success=false" in prompt
 
 
-def test_confirmation_survives_assistant_filler_between_user_yes_and_tool_call():
-    """Regression for the real-call bug where a filler assistant utterance
-    emitted alongside the create_booking tool call (e.g. "Un momento.")
-    overwrote last_assistant_transcript and erased the confirmation cue from
-    the previous confirmation question, causing _write_confirmation_granted
-    to falsely reject an explicit "Va bene" from the customer.
-    """
+def test_find_booking_unlocks_modify_and_cancel_scope():
     state = RealtimeCallState(
         caller_phone="+41779802809",
-        twilio_call_sid="CA_filler_regression",
+        twilio_call_sid="CA_find_booking_unlock",
+    )
+    state.tool_events.append(
+        {
+            "tool": "find_booking",
+            "arguments": {},
+            "result": {"found": True, "bookings": [{"confirmation_code": "TM-123456"}]},
+        }
     )
 
-    # Assistant asks for explicit confirmation.
-    _ingest_assistant_transcript(
-        state, "Ho bisogno di un sì chiaro per procedere, va bene?"
-    )
-    assert state.awaiting_confirmation is True
-
-    # Customer confirms clearly.
-    _ingest_user_transcript(state, "Va bene")
-    assert state.confirmation_granted is True
-
-    # Model emits a short filler utterance right before the tool call.
-    _ingest_assistant_transcript(state, "Un momento.")
-
-    # The filler must NOT clear the confirmation — the tool call should pass.
-    assert state.awaiting_confirmation is True
-    assert state.confirmation_granted is True
-    assert _write_confirmation_granted(state) is True
-
-
-def test_confirmation_not_granted_on_garbled_user_response():
-    """Negative regression: a non-affirmative, garbled user turn ("Domi?")
-    must not be treated as a confirmation even when the prior assistant turn
-    asked for one.
-    """
-    state = RealtimeCallState(
-        caller_phone="+41779802809",
-        twilio_call_sid="CA_garbled_response",
-    )
-    _ingest_assistant_transcript(
-        state,
-        "Prenoto per martedì 14 alle 20 per 4 persone a nome Anna, conferma?",
-    )
-    assert state.awaiting_confirmation is True
-
-    _ingest_user_transcript(state, "Domi?")
-
-    assert state.confirmation_granted is False
-    assert _write_confirmation_granted(state) is False
-
-
-def test_confirmation_granted_on_natural_affirmative_perfetto():
-    state = RealtimeCallState(
-        caller_phone="+41779802809",
-        twilio_call_sid="CA_natural_affirmative",
-    )
-    _ingest_assistant_transcript(
-        state,
-        "Prenoto per sabato alle 21 per 4 persone a nome Juan, conferma?",
+    assert _current_tool_scope(state) == (
+        "check_availability",
+        "find_booking",
+        "create_booking",
+        "modify_booking",
+        "cancel_booking",
+        "escalate_to_human",
     )
 
-    _ingest_user_transcript(state, "Perfetto.")
 
-    assert state.confirmation_granted is True
-    assert _write_confirmation_granted(state) is True
-
-
-def test_confirmation_granted_on_natural_affirmative_accetta():
-    state = RealtimeCallState(
-        caller_phone="+41779802809",
-        twilio_call_sid="CA_natural_affirmative_accetta",
-    )
-    _ingest_assistant_transcript(
-        state,
-        "Perfetto, allora la prenoto per domani alle 21 per cinque persone a nome Juan Manuel. Procedo?",
-    )
-
-    _ingest_user_transcript(state, "Accetta")
-
-    assert state.confirmation_granted is True
-    assert _write_confirmation_granted(state) is True
-
-
-def test_confirmation_granted_from_transcription_delta_before_completion():
-    state = RealtimeCallState(
-        caller_phone="+41779802809",
-        twilio_call_sid="CA_delta_confirmation",
-    )
-    _ingest_assistant_transcript(
-        state,
-        "Mi serve un sì chiaro per procedere, va bene?",
-    )
-
-    _ingest_input_audio_transcription_delta(state, item_id="item-user-1", delta="S")
-    assert state.confirmation_granted is False
-
-    _ingest_input_audio_transcription_delta(state, item_id="item-user-1", delta="ì.")
-
-    assert state.confirmation_granted is True
-    assert _write_confirmation_granted(state) is True
-
-
-def test_name_confirmation_does_not_unlock_booking_write():
+def test_name_confirmation_only_tracks_requested_field():
     state = RealtimeCallState(
         caller_phone="+41779802809",
         twilio_call_sid="CA_name_confirmation_scope",
@@ -809,34 +679,10 @@ def test_name_confirmation_does_not_unlock_booking_write():
     _ingest_assistant_transcript(state, "Juan Manuel Fuentes, corretto cosi?")
 
     assert state.last_requested_field == "customer_name"
-    assert state.pending_confirmation_kind == "name"
-    assert state.awaiting_confirmation is False
 
     _ingest_user_transcript(state, "Correcto.")
 
-    assert state.confirmation_granted is False
-    assert _write_confirmation_granted(state) is False
-
-
-def test_booking_confirmation_still_works_after_name_confirmation():
-    state = RealtimeCallState(
-        caller_phone="+41779802809",
-        twilio_call_sid="CA_name_then_booking_confirmation",
-    )
-
-    _ingest_assistant_transcript(state, "Juan Manuel Fuentes, corretto cosi?")
-    _ingest_user_transcript(state, "Correcto.")
-    assert _write_confirmation_granted(state) is False
-
-    _ingest_assistant_transcript(
-        state,
-        "Perfetto, la prenoto per sabato alle 19 per cinque persone a nome Juan Manuel Fuentes. Confermo?",
-    )
-    _ingest_user_transcript(state, "Sì")
-
-    assert state.pending_confirmation_kind == "write"
-    assert state.confirmation_granted is True
-    assert _write_confirmation_granted(state) is True
+    assert state.last_user_reply_valid is True
 
 
 def test_create_booking_success_sets_terminal_write_success(db_session):

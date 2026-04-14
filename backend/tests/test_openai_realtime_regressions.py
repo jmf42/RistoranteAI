@@ -187,7 +187,6 @@ def test_create_booking_is_blocked_when_caller_only_asked_for_options(db_session
     state = RealtimeCallState(caller_phone="+393409991111", twilio_call_sid="CA_options_only")
 
     _ingest_user_transcript(state, "Vorrei solo alcune opzioni per mercoledi a pranzo.")
-    state.confirmation_granted = True
 
     result = _sync_dispatch_tool(
         session_factory,

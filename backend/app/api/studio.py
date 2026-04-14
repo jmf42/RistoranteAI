@@ -35,6 +35,7 @@ from app.services.openai_realtime import (
     SUPPORTED_RUNTIME_OVERRIDE_FIELDS,
     RealtimeCallState,
     RealtimeSessionOverrides,
+    _current_tool_scope,
     _ingest_assistant_transcript,
     _ingest_user_transcript,
     _sync_dispatch_tool,
@@ -174,6 +175,16 @@ def tool_test(
         _ingest_assistant_transcript(state, payload.last_assistant_transcript)
     if payload.last_user_transcript:
         _ingest_user_transcript(state, payload.last_user_transcript)
+    if payload.tool_name not in _current_tool_scope(state):
+        return StudioToolTestResponse(
+            result={
+                "success": False,
+                "reason": (
+                    "Tool non disponibile in questo punto del flusso. "
+                    "Serve prima una verifica di lettura coerente con la richiesta."
+                ),
+            }
+        )
     result = _sync_dispatch_tool(
         session_factory,
         restaurant=restaurant,
