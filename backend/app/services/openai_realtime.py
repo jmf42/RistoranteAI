@@ -25,7 +25,14 @@ from app.schemas.booking import BookingCreate, BookingUpdate
 from app.schemas.common import BookingSource, BookingStatus
 from app.schemas.tools import ModifyBookingChanges
 from app.services.availability import ACTIVE_STATUSES, check_availability
-from app.services.bookings import create_booking, find_bookings_for_caller, update_booking
+from app.services.bookings import (
+    cancel_booking as cancel_booking_service,
+)
+from app.services.bookings import (
+    create_booking,
+    find_bookings_for_caller,
+    update_booking,
+)
 
 SUPPORTED_REALTIME_MODELS = {"gpt-realtime", "gpt-realtime-1.5", "gpt-realtime-mini"}
 SUPPORTED_REALTIME_VOICES = {
@@ -448,11 +455,29 @@ def _runtime_context_message(restaurant: Restaurant, *, caller_phone: str) -> st
     )
 
 
+# Canonical transcription prompt — used both for the Whisper config and for
+# filtering echo artifacts from the resulting transcript.
+_TRANSCRIPTION_PROMPT_TEXT = "Prenotazione telefonica. Trascrivi quello che dice il cliente."
+
+# Substrings of the transcription prompt that Whisper tends to echo verbatim
+# when audio is unclear.  Used by _is_transcription_prompt_echo() below.
+_TRANSCRIPTION_PROMPT_ECHO_MARKERS = (
+    "trascrivi quello che dice il cliente",
+    "prenotazione telefonica. trascrivi",
+)
+
+
 def _transcription_prompt(restaurant: Restaurant) -> str:
     # IMPORTANT: Do NOT include restaurant name, address or other contextual data
     # in the transcription prompt. Whisper-family models echo prompt text verbatim
     # when audio is unclear, causing garbage transcriptions that confuse the agent.
-    return "Prenotazione telefonica. Trascrivi quello che dice il cliente."
+    return _TRANSCRIPTION_PROMPT_TEXT
+
+
+def _is_transcription_prompt_echo(text: str) -> bool:
+    """Return True if *text* looks like Whisper echoing the transcription prompt."""
+    lowered = text.strip().lower()
+    return any(marker in lowered for marker in _TRANSCRIPTION_PROMPT_ECHO_MARKERS)
 
 
 def _extract_message_text(output: dict[str, Any]) -> str:
@@ -468,6 +493,9 @@ def _extract_message_text(output: dict[str, Any]) -> str:
 def _append_transcript_line(state: RealtimeCallState, speaker: str, text: str) -> bool:
     cleaned = text.strip()
     if not cleaned:
+        return False
+    # Drop lines that are just the transcription prompt echoed by Whisper.
+    if _is_transcription_prompt_echo(cleaned):
         return False
     line = f"{speaker}: {cleaned}"
     if state.transcript_lines and state.transcript_lines[-1] == line:
@@ -659,7 +687,16 @@ def _reply_matches_field(text: str, field_name: str | None) -> bool:
     if field_name == "time":
         return _extract_time_candidate(lowered) is not None
     if field_name == "customer_name":
-        return bool(re.search(r"[a-zA-ZÀ-ÿ]{2,}", text)) and "?" not in text
+        # Reject question marks, very short fragments, and transcription echoes.
+        if "?" in text:
+            return False
+        if _is_transcription_prompt_echo(text):
+            return False
+        # Must contain at least one word of 2+ alpha chars that isn't a common filler.
+        name_tokens = re.findall(r"[a-zA-ZÀ-ÿ]{2,}", text)
+        filler_words = {"si", "sì", "ok", "no", "eh", "ah", "grazie", "yes", "yeah", "oui"}
+        meaningful = [t for t in name_tokens if t.lower() not in filler_words]
+        return len(meaningful) >= 1
     return True
 
 
@@ -721,38 +758,6 @@ def _guard_failed_result(state: RealtimeCallState, *, reason: str, assistant_ins
     }
 
 
-def _normalize_check_arguments(state: RealtimeCallState, arguments: dict[str, Any]) -> dict[str, Any]:
-    normalized = dict(arguments)
-    context_party_size = state.booking_context.get("party_size")
-    if isinstance(context_party_size, int) and context_party_size > int(arguments.get("party_size") or 0):
-        normalized["party_size"] = context_party_size
-    requested_time = state.booking_context.get("requested_time")
-    if requested_time and (
-        not normalized.get("time_preference")
-        or (
-            state.booking_context.get("service_period") == "lunch"
-            and time.fromisoformat(str(normalized["time_preference"])).hour >= 19
-        )
-    ):
-        normalized["time_preference"] = requested_time
-    return normalized
-
-
-def _normalize_create_arguments(state: RealtimeCallState, arguments: dict[str, Any]) -> dict[str, Any]:
-    normalized = dict(arguments)
-    context_party_size = state.booking_context.get("party_size")
-    if isinstance(context_party_size, int) and context_party_size > int(arguments.get("party_size") or 0):
-        normalized["party_size"] = context_party_size
-    requested_time = state.booking_context.get("requested_time")
-    if requested_time and (
-        not normalized.get("time")
-        or (
-            state.booking_context.get("service_period") == "lunch"
-            and time.fromisoformat(str(normalized["time"])).hour >= 19
-        )
-    ):
-        normalized["time"] = requested_time
-    return normalized
 
 
 def _booking_facts_from_state(state: RealtimeCallState) -> dict[str, Any]:
@@ -779,6 +784,17 @@ def _build_final_call_summary(state: RealtimeCallState) -> str:
             f"Prenotazione confermata per {party_size} persone il {booked_date} "
             f"alle {booked_time} a nome {customer_name}."
         )
+    if state.outcome == "booking_cancelled":
+        # Build a richer summary for cancellations using the tool event data.
+        for event in reversed(state.tool_events):
+            if event.get("tool") == "cancel_booking" and isinstance(event.get("result"), dict):
+                code = (event.get("arguments") or {}).get("confirmation_code", "")
+                if code:
+                    return f"Prenotazione {code} cancellata su richiesta del cliente."
+                return "Prenotazione cancellata su richiesta del cliente."
+        return "Prenotazione cancellata su richiesta del cliente."
+    if state.outcome == "booking_modified":
+        return "Prenotazione modificata su richiesta del cliente."
     if state.outcome == "escalated":
         return "Chiamata trasferita al ristorante."
     if state.outcome == "tool_error":
@@ -788,7 +804,7 @@ def _build_final_call_summary(state: RealtimeCallState) -> str:
         if last_event.get("tool") == "check_availability" and isinstance(last_event.get("result"), dict):
             result = last_event["result"]
             requested_time = str(
-                (last_event.get("arguments") or {}).get("time_preference")
+                (last_event.get("arguments") or {}).get("time")
                 or state.booking_context.get("requested_time")
                 or "orario richiesto"
             )[:5]
@@ -883,8 +899,8 @@ Personality & Tone
 - Nessun gergo tecnico, nessun riepilogo lungo, nessuna spiegazione di sistema.
 - Non aprire ogni risposta con un nuovo saluto o con il nome del ristorante.
 - Se un'informazione è già chiara, non richiederla. Se il cliente la ripete, accettala e vai avanti.
-- Nomi clienti: preserva il nome completo esatto sentito. Se senti "Juan Manuel", non accorciare a "Manuel".
-- Se sei incerto su un nome, chiedi una sola conferma breve del nome completo.
+- Nomi clienti: un solo nome o cognome è sufficiente. Se il cliente dice "Manuel" o "Bueno", accettalo subito senza chiedere il nome completo.
+- Se il nome è insolito o l'audio è sporco, usa la parola sentita senza bloccarti a chiedere lo spelling o ulteriori conferme.
 - Se il cliente chiede il tuo nome: "Mi chiamo Edoardo."
 - Se chiede se sei un'AI: "Sono l'assistente digitale del ristorante. Mi dica pure."
 - Stile: {restaurant.agent_style_notes or "Tono ospitale, elegante e diretto."}
@@ -934,8 +950,7 @@ Tools
 - Strumenti di lettura: check_availability, find_booking.
 - Strumenti di scrittura: create_booking, modify_booking, cancel_booking.
 - Usa gli strumenti di lettura in modo proattivo quando servono.
-- Usa gli strumenti di scrittura solo dopo una conferma esplicita del cliente
-  e solo nel turno successivo alla domanda finale di conferma.
+- Usa gli strumenti di scrittura rispettando le regole di conferma specifiche per l'azione (creazione vs modifica/cancellazione) spiegate nella sezione Write Action Rules.
 - Prima di un tool di lettura usa al massimo una frase breve: "Controllo subito." oppure "Verifico."
 - Prima di un tool di scrittura usa al massimo una frase breve: "Un momento." oppure "Procedo."
 - Chiama il tool subito dopo il preambolo.
@@ -950,9 +965,8 @@ Conversation Flow
   - se manca un dato, chiedi solo quel dato
   - usa check_availability prima di confermare
   - se c'è disponibilità, raccogli il nome
-  - fai una sola conferma finale
-  - aspetta il turno successivo con un sì esplicito
-  - solo allora crea la prenotazione
+  - usa la richiesta del nome come recita dei dettagli (es. "Ho disponibilità per stasera alle 21. A che nome prenoto?")
+  - appena il cliente fornisce un nome, esegui subito create_booking senza chiedere altre conferme o permessi
 - Se l'orario non è disponibile, proponi al massimo due alternative concrete e vicine.
 - Se il nome non è chiaro dopo due tentativi mirati, passa a un umano.
 - Modifica e cancellazione:
@@ -986,14 +1000,12 @@ Phone Rules
 - Ripetilo con la pronuncia più naturale possibile senza cambiare il comportamento del servizio.
 
 Write Action Rules
-- Prima di create_booking, modify_booking o cancel_booking: riassumi i dettagli in una frase e chiedi conferma.
-- Esegui il tool solo nel turno successivo a una conferma chiara del cliente.
-- Se il cliente ha già confermato chiaramente, non chiedere di nuovo la stessa conferma.
+- Per create_booking: la fornitura del nome da parte del cliente dopo aver suggerito i dettagli equivale a una conferma tacita. Esegui il tool in quel preciso turno senza dire "Conferma?".
+- Per modify_booking o cancel_booking: sii più cauto, chiedi una conferma veloce ("Cencello per domani alle 21, giusto?") ed esegui al prossimo sì.
 - Se cambiano data, ora o numero persone dopo check_availability, rifai check_availability prima di scrivere.
-- Se la conferma è ambigua, riformula una sola volta in modo naturale e breve.
-- Non dire mai al cliente quali parole esatte deve usare per confermare.
-- Non usare formule rigide come "Mi serve un sì chiaro" o "basta dire sì".
-- Se la conferma resta ambigua dopo una sola richiesta breve, passa a un umano.
+- Sii elastico: se l'audio è sporco o la risposta è un "ok"/"va bene" debole, per la creazione consideralo pienamente affermativo. Non bloccarti in loop di rassicurazioni.
+- Non dire mai al cliente quali parole esatte deve usare per rispondere.
+- Se una conferma per cancellazione/modifica resta totalmente incomprensibile dopo un tentativo mirato, passa a un umano.
 
 Duplicate Prevention
 - Non creare mai prenotazioni duplicate.
@@ -1023,9 +1035,8 @@ Unclear Audio
 - Se la risposta sembra incompatibile con la domanda, correggi subito:
   "Mi scusi, non ho capito bene quel dettaglio. Può ripetere solo l'orario?"
 - Non dire "perfetto" dopo una risposta poco chiara o senza senso.
-- Se una conferma finale non è chiara, usa una sola riparazione morbida, ad esempio:
-  "Non ho colto bene la conferma. Se per lei va bene, procedo subito."
-- Massimo due tentativi per la stessa informazione, poi escala.
+- Se c'è rumore e l'interazione è chiaramente orientata a completare la prenotazione, fidati dell'intento e procedi. Non interrompere il flusso magico per incomprensioni vocali minori.
+- Usa tentativi mirati solo se manca un dato obbligatorio (es. data o ora). Al massimo due tentativi, poi escala.
 """.strip()
 
 
@@ -1063,15 +1074,15 @@ def build_realtime_tools(
                             "detto dal cliente. Non inventare."
                         ),
                     },
-                    "time_preference": {
+                    "time": {
                         "type": "string",
                         "description": (
-                            "Orario preferito in formato HH:MM:SS. Omettilo se il cliente "
-                            "non ha indicato un orario preciso."
+                            "Orario richiesto in formato HH:MM:SS (es. 'stasera' -> 19:30 o 20:00). "
+                            "DEVE essere fornito per controllare eventuali disponibilità."
                         ),
                     },
                 },
-                "required": ["date", "party_size"],
+                "required": ["date", "party_size", "time"],
                 "additionalProperties": False,
             },
         },
@@ -1101,10 +1112,10 @@ def build_realtime_tools(
                 "Crea una nuova prenotazione confermata. "
                 "REQUISITI: 1) check_availability già chiamato con esito positivo, "
                 "2) tutti i dati raccolti ESPLICITAMENTE dal cliente "
-                "(data, ora, persone, nome), "
-                "3) una conferma chiara del cliente nel turno successivo al riepilogo finale. "
+                "(data, ora, persone, nome). "
+                "La fornitura del nome da parte del cliente equivale a confermare. NON chiedere ulteriori consensi. "
                 "Se il cliente ha chiesto solo opzioni o disponibilita, NON usare questo tool "
-                "finché non chiede esplicitamente di prenotare. "
+                "finché non decide esplicitamente di prenotare (es. fornendo un nome). "
                 "NON usare dati inventati o assunti. "
                 "Se il cliente cambia data, ora o numero persone dopo la verifica, "
                 "rifai check_availability prima di usare questo tool."
@@ -1137,7 +1148,7 @@ def build_realtime_tools(
                     "special_requests": {
                         "type": "string",
                         "description": (
-                            "Solo richieste non critiche citate spontaneamente dal cliente. "
+                            "Richieste speciali o note logistiche (es. cani, seggioloni, preferenza tavolo fuori/dentro). "
                             "Ometti allergie o richieste fuori policy."
                         ),
                     },
@@ -1896,22 +1907,18 @@ def _sync_dispatch_tool(
                             "Se anche il secondo tentativo non e chiaro, trasferisci al ristorante."
                         ),
                     )
-                normalized_arguments = _normalize_check_arguments(state, arguments)
                 requested_time = (
-                    time.fromisoformat(normalized_arguments["time_preference"])
-                    if normalized_arguments.get("time_preference")
+                    time.fromisoformat(arguments["time"])
+                    if arguments.get("time")
                     else None
                 )
                 result = check_availability(
                     db,
                     restaurant=restaurant,
-                    booking_date=date.fromisoformat(normalized_arguments["date"]),
+                    booking_date=date.fromisoformat(arguments["date"]),
                     requested_time=requested_time,
-                    party_size=int(normalized_arguments["party_size"]),
+                    party_size=int(arguments["party_size"]),
                 )
-                result["normalized_party_size"] = int(normalized_arguments["party_size"])
-                if requested_time is not None:
-                    result["normalized_time"] = requested_time.isoformat()
                 return result
 
             if tool_name == "find_booking":
@@ -1927,16 +1934,6 @@ def _sync_dispatch_tool(
                 }
 
             if tool_name == "create_booking":
-                if state.intent == "availability_only":
-                    return _guard_failed_result(
-                        state,
-                        reason="Il cliente ha chiesto solo disponibilita o opzioni, non una prenotazione.",
-                        assistant_instruction=(
-                            "Rispondi con la disponibilita richiesta. Chiedi il nome o conferma finale "
-                            "solo se il cliente chiede esplicitamente di prenotare."
-                        ),
-                    )
-                normalized_arguments = _normalize_create_arguments(state, arguments)
                 existing_bookings = find_bookings_for_caller(
                     db,
                     restaurant_id=restaurant.id,
@@ -1947,8 +1944,8 @@ def _sync_dispatch_tool(
                     (
                         booking
                         for booking in existing_bookings
-                        if str(booking.date) == str(normalized_arguments["date"])
-                        and str(booking.time) == str(normalized_arguments["time"])
+                        if str(booking.date) == str(arguments["date"])
+                        and str(booking.time) == str(arguments["time"])
                         and booking.status in ACTIVE_STATUSES
                     ),
                     None,
@@ -1973,16 +1970,16 @@ def _sync_dispatch_tool(
                     db,
                     payload=BookingCreate(
                         restaurant_id=restaurant.id,
-                        date=date.fromisoformat(normalized_arguments["date"]),
-                        time=time.fromisoformat(normalized_arguments["time"]),
-                        party_size=int(normalized_arguments["party_size"]),
+                        date=date.fromisoformat(arguments["date"]),
+                        time=time.fromisoformat(arguments["time"]),
+                        party_size=int(arguments["party_size"]),
                         customer_name=str(
-                            normalized_arguments.get("customer_name")
-                            or normalized_arguments.get("name")
+                            arguments.get("customer_name")
+                            or arguments.get("name")
                             or ""
                         ).strip(),
                         customer_phone=state.caller_phone,
-                        special_requests=normalized_arguments.get("special_requests"),
+                        special_requests=arguments.get("special_requests"),
                         source=BookingSource.ai_phone,
                         status=BookingStatus.confirmed,
                     ),
@@ -2000,17 +1997,21 @@ def _sync_dispatch_tool(
                 state.terminal_write_success = True
                 state.end_call_after_response = True
                 state.current_booking_id = booking.id
-                state.booking_context.setdefault("date", normalized_arguments["date"])
-                state.booking_context.setdefault("requested_time", normalized_arguments["time"])
-                state.booking_context.setdefault("party_size", int(normalized_arguments["party_size"]))
+                state.booking_context.setdefault("date", arguments["date"])
+                state.booking_context.setdefault("requested_time", arguments["time"])
+                state.booking_context.setdefault("party_size", int(arguments["party_size"]))
                 state.booking_context.setdefault(
                     "customer_name",
-                    str(normalized_arguments.get("customer_name") or normalized_arguments.get("name") or "").strip(),
+                    str(arguments.get("customer_name") or arguments.get("name") or "").strip(),
                 )
                 return {
                     "success": True,
                     "confirmation_code": booking.confirmation_code,
                     "booking_id": booking.id,
+                    "assistant_instruction": (
+                        "La prenotazione è confermata. Comunica l'esito in una sola frase breve, "
+                        "saluta e chiudi la chiamata. Non aggiungere altre domande o frasi."
+                    ),
                 }
 
             if tool_name == "modify_booking":
@@ -2052,8 +2053,13 @@ def _sync_dispatch_tool(
                 )
                 if not booking:
                     return {"success": False, "reason": "Prenotazione non trovata."}
-                booking.status = "cancelled"
-                db.add(booking)
+                # Use the bookings service so that a BookingEvent is created
+                # and the customer cancellation counter is incremented.
+                cancel_booking_service(
+                    db,
+                    booking=booking,
+                    changed_by="openai_realtime",
+                )
                 db.commit()
                 state.outcome = "booking_cancelled"
                 state.terminal_write_success = True
@@ -2549,6 +2555,9 @@ async def bridge_twilio_media_stream(
                         partial_transcript = state.pending_user_audio_transcripts.pop(item_id, "")
                         transcript = str(event.get("transcript") or partial_transcript).strip()
                         if transcript:
+                            # Drop Whisper prompt echoes before they enter the pipeline.
+                            if _is_transcription_prompt_echo(transcript):
+                                continue
                             if _should_ignore_post_write_user_turn(state):
                                 continue
                             _ingest_user_transcript(state, transcript)
@@ -2571,7 +2580,7 @@ async def bridge_twilio_media_stream(
                             await _update_call(
                                 db_factory,
                                 call_sid=call_sid,
-                                transcript_preview="\n".join(state.transcript_lines[-20:]),
+                                transcript_preview="\n".join(state.transcript_lines),
                             )
                         continue
 
@@ -2640,7 +2649,7 @@ async def bridge_twilio_media_stream(
                             await _update_call(
                                 db_factory,
                                 call_sid=call_sid,
-                                transcript_preview="\n".join(state.transcript_lines[-20:]),
+                                transcript_preview="\n".join(state.transcript_lines),
                                 summary=transcript[:500],
                             )
                         continue
@@ -2719,7 +2728,7 @@ async def bridge_twilio_media_stream(
                                     await _update_call(
                                         db_factory,
                                         call_sid=call_sid,
-                                        transcript_preview="\n".join(state.transcript_lines[-20:]),
+                                        transcript_preview="\n".join(state.transcript_lines),
                                         summary=message_text[:500],
                                     )
                         continue
@@ -2731,7 +2740,7 @@ async def bridge_twilio_media_stream(
                             # Most audio has already been played by the time response.done
                             # arrives, so a short buffer is enough to avoid clipping the
                             # goodbye while still ending the call promptly.
-                            hangup_delay_ms = min(max(int((state.last_audio_bytes_sent / 8000) * 120), 400), 1200)
+                            hangup_delay_ms = int((state.last_audio_bytes_sent / 8000) * 1000) + 1000
                         state.response_in_progress = False
                         state.assistant_is_speaking = False
                         _finish_initial_greeting(state)
@@ -2866,7 +2875,7 @@ async def bridge_twilio_media_stream(
             provider_call_id=state.openai_session_id or call_sid,
             call_status=state.call_status,
             outcome=state.outcome,
-            transcript_preview="\n".join(state.transcript_lines[-20:]),
+            transcript_preview="\n".join(state.transcript_lines),
             summary=_build_final_call_summary(state),
             booking_id=state.current_booking_id,
             extra_data={
@@ -2916,7 +2925,7 @@ async def bridge_twilio_media_stream(
         provider_call_id=state.openai_session_id or call_sid,
         call_status=state.call_status,
         outcome=state.outcome,
-        transcript_preview="\n".join(state.transcript_lines[-20:]),
+        transcript_preview="\n".join(state.transcript_lines),
         summary=_build_final_call_summary(state),
         booking_id=final_booking_id,
         extra_data={

@@ -69,7 +69,7 @@ def test_write_tools_stay_locked_until_successful_read_step():
     state.tool_events.append(
         {
             "tool": "check_availability",
-            "arguments": {"date": _next_open_date(), "party_size": 2, "time_preference": "20:00:00"},
+            "arguments": {"date": _next_open_date(), "party_size": 2, "time": "20:00:00"},
             "result": {"available": False},
         }
     )
@@ -92,7 +92,7 @@ def test_write_tools_unlock_after_successful_availability_check(db_session):
     state.tool_events.append(
         {
             "tool": "check_availability",
-            "arguments": {"date": booking_date, "party_size": 2, "time_preference": "20:00:00"},
+            "arguments": {"date": booking_date, "party_size": 2, "time": "20:00:00"},
             "result": {"available": True, "slot": {"time": "20:00"}},
         }
     )
@@ -297,10 +297,10 @@ def test_instructions_pin_italian_intonation_and_confirmation_rules(db_session):
     session_update = build_session_update(restaurant, caller_phone="+390000000000")
     instructions = session_update["session"]["instructions"]
     assert "intonazione italiana naturale" in instructions
-    assert "Se il cliente ha già confermato chiaramente, non chiedere di nuovo la stessa conferma." in instructions
-    assert "Esegui il tool solo nel turno successivo a una conferma chiara del cliente." in instructions
+    assert "esegui subito create_booking senza chiedere altre conferme o permessi" in instructions
+    assert "la fornitura del nome da parte del cliente dopo aver suggerito i dettagli equivale a una conferma tacita" in instructions
     assert "scandiscili elemento per elemento" in instructions
-    assert "non tradurlo e non accorciarlo" in instructions
+    assert "un solo nome o cognome è sufficiente" in instructions
     assert "Data attuale:" not in instructions
     assert "Ora attuale:" not in instructions
 
@@ -371,8 +371,8 @@ def test_instructions_recover_from_garbled_phone_audio_and_preserve_full_names(d
     assert "DX" in instructions
     assert "casi persone" in instructions
     assert "non trattarla come dato valido" in instructions
-    assert "Juan Manuel" in instructions
-    assert "non accorciare" in instructions
+    assert "Manuel" in instructions
+    assert "senza chiedere il nome completo" in instructions
     assert "ultima risorsa" in instructions
     assert "Non trasferire" in instructions
     assert "Se il cliente parla chiaramente un'altra lingua che sai gestire" in instructions
@@ -403,10 +403,10 @@ def test_instructions_use_soft_confirmation_repair_without_magic_word_prompting(
     session_update = build_session_update(restaurant, caller_phone="+390000000000")
     instructions = session_update["session"]["instructions"]
 
-    assert "Se la conferma è ambigua, riformula una sola volta in modo naturale e breve." in instructions
-    assert "Se la conferma resta ambigua dopo una sola richiesta breve, passa a un umano." in instructions
+    assert "Sii elastico: se l'audio è sporco o la risposta è un" in instructions
+    assert "Se una conferma per cancellazione/modifica resta totalmente incomprensibile" in instructions
     assert "Non dire mai al cliente quali parole esatte deve usare" in instructions
-    assert "Non usare formule rigide come" in instructions
+
 
 
 class _RecordingSocket:

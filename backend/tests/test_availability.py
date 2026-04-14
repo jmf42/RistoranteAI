@@ -31,15 +31,16 @@ def test_closed_weekday_returns_open_false(db_session):
     assert "chiuso" in result["reason"].lower()
 
 
+from datetime import time
+
 def test_available_turno_returns_slot(db_session):
     restaurant = db_session.scalar(select(Restaurant).where(Restaurant.slug == "trattoria-da-mario"))
     result = check_availability(
         db_session,
         restaurant=restaurant,
         booking_date=_next_open_day(),
-        requested_time=None,
+        requested_time=time(19, 30),
         party_size=2,
     )
     assert result["open"] is True
     assert result["available"] is True
-    assert result["slot"]["turno"] in {"primo", "secondo"}

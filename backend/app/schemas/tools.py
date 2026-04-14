@@ -18,7 +18,7 @@ class SlotOption(AppBaseModel):
 class CheckAvailabilityRequest(AppBaseModel):
     restaurant_id: str
     date: DateValue
-    time_preference: TimeValue | None = None
+    time: TimeValue | None = None
     party_size: int = Field(ge=1, le=30)
 
 

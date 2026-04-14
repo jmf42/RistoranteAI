@@ -23,3 +23,18 @@ dashboard/.next-dev/
 dashboard/tsconfig.tsbuildinfo
 
 scripts/__pycache__/
+gcp-key.json
+.uv_cache/
+backend/.uv_cache/
+
+# Deployment & Scratch Protection
+backend/env_vars.yaml
+backend/auto_deploy.sh
+fetch_logs.sh
+read_logs.py
+*.json
+*.txt
+!backend/app/**/*.json
+!dashboard/**/*.json
+.claude/
+.gcloud_config/

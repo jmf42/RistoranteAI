@@ -1,6 +1,16 @@
 "use client";
 
-import { Search } from "lucide-react";
+import {
+  Activity,
+  Calendar,
+  CheckCircle2,
+  Clock,
+  Info,
+  Phone,
+  Search,
+  Users,
+  XCircle,
+} from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import { DashboardShell } from "@/components/dashboard-shell";
@@ -27,6 +37,15 @@ const callOutcomes = [
   { value: "abandoned", label: "Interrotte" },
   { value: "tool_error", label: "Errori" },
 ];
+
+const toolLabels: Record<string, string> = {
+  check_availability: "Verifica disponibilità",
+  find_booking: "Ricerca prenotazione",
+  create_booking: "Creazione prenotazione",
+  modify_booking: "Modifica prenotazione",
+  cancel_booking: "Cancellazione prenotazione",
+  escalate_to_human: "Trasferimento al ristorante",
+};
 
 export default function CallsPage() {
   const { activeRestaurantId } = useWorkspace();
@@ -315,11 +334,15 @@ export default function CallsPage() {
                 </div>
 
                 <div className="grid gap-3 sm:grid-cols-2">
-                  <MetaBlock label="Quando" value={formatDateTime(selectedCall.started_at)} />
-                  <MetaBlock label="Durata" value={formatDuration(selectedCall.duration_seconds)} />
-                  <MetaBlock label="Chiamante" value={selectedCall.caller_phone ?? "—"} />
-                  <MetaBlock label="Esito tecnico" value={formatCallStatusLabel(selectedCall.call_status)} />
-                  <MetaBlock label="Booking collegata" value={selectedCall.booking_id ?? "Nessuna"} />
+                  <MetaBlock icon={<Calendar size={14} />} label="Quando (Chiamata)" value={formatDateTime(selectedCall.started_at)} />
+                  <MetaBlock icon={<Clock size={14} />} label="Durata" value={formatDuration(selectedCall.duration_seconds)} />
+                  <MetaBlock icon={<Phone size={14} />} label="Chiamante" value={selectedCall.caller_phone || "—"} />
+                  <MetaBlock icon={<Users size={14} />} label="Persona" value={selectedCall.customer_name || "—"} />
+                  <MetaBlock icon={<Users size={14} />} label="Coperti richiesti" value={selectedCall.party_size ? String(selectedCall.party_size) : "—"} />
+                  <MetaBlock icon={<Calendar size={14} />} label="Giorno richiesto" value={selectedCall.requested_date || "—"} />
+                  <MetaBlock icon={<Clock size={14} />} label="Orario richiesto" value={selectedCall.requested_time || "—"} />
+                  <MetaBlock icon={<Info size={14} />} label="Esito tecnico" value={formatCallStatusLabel(selectedCall.call_status)} />
+                  <MetaBlock icon={<CheckCircle2 size={14} />} label="Booking linked" value={selectedCall.booking_id || "Nessuna"} />
                 </div>
 
                 <div className="rounded-[1.45rem] border border-stone/80 bg-white/82 p-4">
@@ -333,6 +356,86 @@ export default function CallsPage() {
                     {transcript.transcript ?? "Nessuna trascrizione disponibile."}
                   </pre>
                 </details>
+
+                {transcript.metadata.tool_events &&
+                Array.isArray(transcript.metadata.tool_events) &&
+                transcript.metadata.tool_events.length > 0 ? (
+                  <details className="rounded-[1.45rem] border border-stone/80 bg-white/82 p-4">
+                    <summary className="cursor-pointer text-sm font-semibold text-ink">
+                      Attività tecnica dell&apos;agente
+                    </summary>
+                    <div className="mt-4 space-y-4">
+                      {(transcript.metadata.tool_events as any[]).map((event, idx) => (
+                        <div
+                          key={idx}
+                          className="rounded-[1.1rem] border border-stone/40 bg-ivory/30 p-3"
+                        >
+                          <div className="flex items-center gap-2">
+                            <div
+                              className={`rounded-full p-1.5 ${
+                                event.result?.success === false || event.result?.available === false
+                                  ? "bg-terracotta/10 text-terracotta"
+                                  : "bg-olive/10 text-olive"
+                              }`}
+                            >
+                              <Activity size={12} />
+                            </div>
+                            <span className="text-xs font-bold uppercase tracking-wider text-ink/70">
+                              {toolLabels[event.tool] || event.tool}
+                            </span>
+                          </div>
+
+                          <div className="mt-2 grid gap-2 text-xs text-ink/60 sm:grid-cols-2">
+                            <div className="space-y-1">
+                              <p className="font-semibold text-ink/40 uppercase tracking-tighter">Richiesta</p>
+                              {event.arguments &&
+                                Object.entries(event.arguments).map(([k, v]) => (
+                                  <p key={k}>
+                                    <span className="capitalize">{k}</span>:{" "}
+                                    <span className="font-medium text-ink/80">{String(v)}</span>
+                                  </p>
+                                ))}
+                            </div>
+                            <div className="space-y-1">
+                              <p className="font-semibold text-ink/40 uppercase tracking-tighter">Risultato</p>
+                              {event.result && (
+                                <>
+                                  <p>
+                                    Stato:{" "}
+                                    <span
+                                      className={`font-medium ${
+                                        event.result.success === false ||
+                                        event.result.available === false
+                                          ? "text-terracotta"
+                                          : "text-olive"
+                                      }`}
+                                    >
+                                      {event.result.success === false ||
+                                      event.result.available === false
+                                        ? "Fallito / Non disponibile"
+                                        : "Successo / Disponibile"}
+                                    </span>
+                                  </p>
+                                  {event.result.reason && (
+                                    <p className="italic text-terracotta/80">{event.result.reason}</p>
+                                  )}
+                                  {event.result.confirmation_code && (
+                                    <p>
+                                      Codice:{" "}
+                                      <span className="font-mono font-bold text-ink">
+                                        {event.result.confirmation_code}
+                                      </span>
+                                    </p>
+                                  )}
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </details>
+                ) : null}
               </div>
             ) : (
               <div className="rounded-[1.45rem] border border-dashed border-stone px-4 py-12 text-center text-sm text-ink/50">
@@ -373,11 +476,14 @@ function StatCard({
   );
 }
 
-function MetaBlock({ label, value }: { label: string; value: string }) {
+function MetaBlock({ label, value, icon }: { label: string; value: string; icon?: React.ReactNode }) {
   return (
     <div className="rounded-[1.25rem] border border-stone/75 bg-white/82 p-4">
-      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-ink/42">{label}</p>
-      <p className="mt-2 text-sm text-ink/72">{value}</p>
+      <div className="flex items-center gap-2">
+        {icon && <span className="text-ink/35">{icon}</span>}
+        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-ink/42">{label}</p>
+      </div>
+      <p className="mt-2 text-sm font-medium text-ink/72">{value}</p>
     </div>
   );
 }

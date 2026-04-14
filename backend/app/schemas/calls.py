@@ -17,6 +17,10 @@ class CallLogRead(AppBaseModel):
     summary: str
     transcript_preview: str | None = None
     caller_phone: str | None = None
+    customer_name: str | None = None
+    party_size: int | None = None
+    requested_date: str | None = None
+    requested_time: str | None = None
 
 
 class TranscriptResponse(AppBaseModel):

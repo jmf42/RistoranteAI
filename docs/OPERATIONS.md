@@ -1,6 +1,6 @@
 # Operations
 
-Last updated: `2026-04-10`
+Last updated: `2026-04-14`
 
 This is the operational runbook for the OpenAI Realtime stack.
 
@@ -68,19 +68,46 @@ NEXT_PUBLIC_API_BASE_URL=https://<backend-domain>
 - keep `SEED_DEMO=false` in production
 - keep `PII_ENCRYPTION_KEY` stable
 
-Apply migrations:
+## Unified Operational Workflow
 
+The repository includes a root `Makefile` that simplifies common tasks.
+
+### Local Verification
 ```bash
-cd backend
-DATABASE_URL='<supabase-pooler-url>' uv run alembic upgrade head
+make verify-all
 ```
 
-Check current schema:
-
+### Applying Migrations
 ```bash
-cd backend
-DATABASE_URL='<supabase-pooler-url>' uv run alembic current
+# Migration target is always 'head'
+make migrate-prod
 ```
+
+### Deployment to Cloud Run
+```bash
+# Deploys both API and Dashboard
+make deploy-all
+```
+
+### Health & Smoke Tests
+```bash
+# Simple health check
+curl -i https://<backend-domain>/health
+
+# Full production smoke test
+OWNER_EMAIL='...' OWNER_PASSWORD='...' make smoke-test
+```
+
+## Agent / CI Deployment
+
+To allow AI agents or CI/CD pipelines to deploy autonomously without interactive login:
+
+1. Create a Google Cloud Service Account with:
+   - `Cloud Run Developer`
+   - `Service Account User`
+2. Generate a JSON Key for the Service Account.
+3. Save it as `gcp-key.json` in the project root (this file is git-ignored).
+4. Future `make deploy-*` commands will automatically detect and use this key for authentication.
 
 ## Twilio Configuration
 
@@ -121,7 +148,7 @@ Before switching real traffic:
 11. A scenario-suite run passes for the target restaurant after any major prompt/config change.
 12. A real Twilio inbound test call completes through the OpenAI bridge.
 
-## Verification Commands
+## Legacy Verification Commands (Direct)
 
 Backend:
 

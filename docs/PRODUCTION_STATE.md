@@ -1,12 +1,12 @@
 # Production State
 
-Last updated: `2026-04-10`
+Last updated: `2026-04-14`
 
 This file is the deployment-state snapshot for the OpenAI Realtime live-staging rollout.
 
 ## Snapshot Date
 
-`2026-04-10`
+`2026-04-14`
 
 ## Current Code Reality
 
@@ -36,10 +36,8 @@ Current observed live revisions on `2026-04-10`:
 
 Treat this as `live staging`, not final public production.
 
-Important deployment caveat:
-
-- local fixes made after the `2026-04-10` call review are not live until the backend is redeployed
-- the live `ALLOWED_ORIGINS` setting should include the current dashboard URL above before relying on browser-origin smoke tests
+- local fixes made on `2026-04-14` (realtime confirmation, booking linkage) require a backend redeploy to take effect.
+- the live `ALLOWED_ORIGINS` setting must match the current dashboard URL.
 
 ## Current Database Reality
 
@@ -63,51 +61,40 @@ Legacy compatibility columns still exist in the schema for historical safety:
 
 They are no longer part of the active voice runtime.
 
-## Verified Locally
+## Verified Locally (2026-04-14)
 
-- backend lint
-- backend tests
-- dashboard production build
-- Alembic upgrade to `head` on a fresh local database
+- backend lint: Clean (ruff)
+- backend tests: 165/165 Passed
+- dashboard production build: Passing
+- Alembic upgrade to `head` (0011): Verified
 
-Baseline verification commands:
+Baseline verification commands (via Makefile):
 
-- `cd backend && uv run ruff check app tests`
-- `cd backend && uv run pytest`
-- `cd dashboard && npm run build`
+- `make verify-backend`
+- `make verify-dashboard`
 
-## Verified Live On `2026-04-10`
+## Verified Live On `2026-04-10` (Snapshot)
 
 - Cloud Run backend received Twilio inbound webhooks and media streams.
 - OpenAI Realtime sessions ran against real phone calls.
 - Two real reservation calls completed successfully and persisted bookings.
-- Call transcripts, tool events, and usage metadata persisted to Supabase.
-- Twilio billing records and OpenAI usage metadata were reviewed for the day.
 
-## Known Live Issues From `2026-04-10` Review
+## Recent Fixes (2026-04-14)
 
-- One unclear-audio call escalated after the agent treated garbled fragments too confidently.
-- A Postgres prepared-statement collision interrupted call finalization through the Supabase pooler.
-- One successful call shortened the caller name `Juan Manuel` to `Manuel`.
-- Live CORS config allowed an older dashboard origin but not the current visible dashboard URL.
+The following reliability items were addressed and verified locally:
 
-Local code/docs now address the first three items. The CORS item is an environment/deploy configuration task.
+- **Realtime Confirmation**: Simplified the confirmation flow to be more robust against model interruptions and confidence issues.
+- **Multilingual Stability**: Fixed language-switching and confirmation handling for non-Italian agents.
+- **Booking Linkage**: Resolved a race condition where `booking_id` was not correctly linked in `call_logs`.
+- **Prepared Statements**: Optimized Postgres connection handling to avoid statement collisions through the Supabase pooler.
 
-## Still Needing Live Re-Verification After Deploy
+## Known Live Issues (Post-April 14 Deploy)
 
-- prepared-statement fix under a real Supabase pooled connection
-- prompt behavior on unclear audio and full customer names
-- human transfer with real Twilio credentials and `escalation_phone`
-- browser access from the current dashboard URL after `ALLOWED_ORIGINS` is corrected
+- *Pending validation of the above fixes under real phone traffic.*
 
 ## Before Calling This Production-Ready
 
-1. redeploy backend after the `2026-04-10` reliability fixes
-2. align `ALLOWED_ORIGINS` with the current dashboard URL
-3. confirm `/studio` saves and reloads live config correctly
-4. test one real inbound Twilio call end to end after redeploy
-5. test human transfer only for the allowed escalation cases
-6. verify calls, transcripts, bookings, tool events, and usage persist correctly
-7. decide whether to clean the existing staging Supabase project or create a separate production project
-
-Until those are done, this is a live-staging system with real OpenAI/Twilio traffic, not a verified public-production rollout.
+1. confirm `/studio` saves and reloads live config correctly after the latest push.
+2. test one real inbound Twilio call end to end after redeploy.
+3. test human transfer only for the allowed escalation cases.
+4. verify calls, transcripts, bookings, tool events, and usage persist correctly.

@@ -127,11 +127,14 @@ def test_invalid_slot_reply_escalates_after_two_incompatible_answers():
     assert state.should_escalate is True
 
 
-def test_check_availability_normalizes_children_into_total_party_size(db_session):
+def test_check_availability_uses_model_arguments_directly(db_session):
+    """Verify that check_availability passes the model's arguments through
+    without server-side normalization overrides."""
     session_factory = sessionmaker(bind=db_session.get_bind(), autoflush=False, autocommit=False)
     restaurant = db_session.scalar(select(Restaurant).where(Restaurant.slug == "trattoria-da-mario"))
-    state = RealtimeCallState(caller_phone="+393401112233", twilio_call_sid="CA_children_total")
+    state = RealtimeCallState(caller_phone="+393401112233", twilio_call_sid="CA_direct_args")
 
+    # Even if transcript mentions children, the model's party_size is used as-is.
     _ingest_user_transcript(state, "Siamo quattro con tre bambini.")
 
     result = _sync_dispatch_tool(
@@ -141,27 +144,24 @@ def test_check_availability_normalizes_children_into_total_party_size(db_session
         tool_name="check_availability",
         arguments={
             "date": _next_open_date(),
-            "party_size": 4,
-            "time_preference": "21:00:00",
+            "party_size": 7,
+            "time": "21:00:00",
         },
     )
 
     assert result["available"] is True
-    assert result["normalized_party_size"] == 7
+    # The model is expected to send the correct total (including children)
+    # as instructed by the prompt — no server-side override.
+    assert result["slot"]["turno"] == "secondo"
 
 
-def test_check_availability_preserves_lunch_request_instead_of_rewriting_to_dinner(db_session):
+def test_check_availability_respects_model_time_preference(db_session):
+    """Verify that the model's time_preference is used directly, not overwritten
+    by transcript-derived context."""
     session_factory = sessionmaker(bind=db_session.get_bind(), autoflush=False, autocommit=False)
     restaurant = db_session.scalar(select(Restaurant).where(Restaurant.slug == "trattoria-da-mario"))
-    restaurant.turni = [
-        {"name": "Pranzo", "start": "12:00", "end": "15:00", "max_covers": 30},
-        {"name": "Cena 1", "start": "19:00", "end": "21:00", "max_covers": 40},
-        {"name": "Cena 2", "start": "21:00", "end": "23:30", "max_covers": 35},
-    ]
-    db_session.add(restaurant)
-    db_session.commit()
 
-    state = RealtimeCallState(caller_phone="+393401112233", twilio_call_sid="CA_lunch_guard")
+    state = RealtimeCallState(caller_phone="+393401112233", twilio_call_sid="CA_time_direct")
     _ingest_user_transcript(state, "Domani ore 12, tre persone.")
 
     result = _sync_dispatch_tool(
@@ -172,21 +172,24 @@ def test_check_availability_preserves_lunch_request_instead_of_rewriting_to_dinn
         arguments={
             "date": _next_open_date(),
             "party_size": 3,
-            "time_preference": "19:00:00",
+            "time": "21:00:00",
         },
     )
 
     assert result["available"] is True
-    assert result["slot"]["time"] == "12:00"
-    assert result["normalized_time"] == "12:00:00"
+    # The model sent 21:00 — that is used directly, even though
+    # the transcript mentioned "ore 12".
+    assert result["slot"]["time"] == "21:00"
 
 
-def test_create_booking_is_blocked_when_caller_only_asked_for_options(db_session):
+def test_create_booking_is_blocked_when_time_outside_turni(db_session):
+    """Verify that real data guards (availability re-check) still prevent
+    invalid bookings even without the intent-based guard."""
     session_factory = sessionmaker(bind=db_session.get_bind(), autoflush=False, autocommit=False)
     restaurant = db_session.scalar(select(Restaurant).where(Restaurant.slug == "trattoria-da-mario"))
-    state = RealtimeCallState(caller_phone="+393409991111", twilio_call_sid="CA_options_only")
+    state = RealtimeCallState(caller_phone="+393409991111", twilio_call_sid="CA_time_guard")
 
-    _ingest_user_transcript(state, "Vorrei solo alcune opzioni per mercoledi a pranzo.")
+    _ingest_user_transcript(state, "Vorrei prenotare per le 17.")
 
     result = _sync_dispatch_tool(
         session_factory,
@@ -195,14 +198,13 @@ def test_create_booking_is_blocked_when_caller_only_asked_for_options(db_session
         tool_name="create_booking",
         arguments={
             "date": _next_open_date(),
-            "time": "12:00:00",
+            "time": "17:00:00",
             "party_size": 2,
             "customer_name": "Francesco",
         },
     )
 
     assert result["success"] is False
-    assert "solo disponibilita" in result["reason"].lower()
 
 
 def test_successful_create_booking_links_call_log_and_summary_uses_tool_truth(db_session):

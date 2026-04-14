@@ -220,7 +220,7 @@ export default function SettingsPage() {
                 />
               </label>
               <label className="grid gap-2 text-sm text-ink/65">
-                Note stile agente
+                Istruzioni Agente (Stile, Menù, Regole)
                 <textarea
                   rows={3}
                   className="rounded-2xl border border-stone bg-white/80 px-4 py-3 text-ink outline-none transition focus:border-gold"

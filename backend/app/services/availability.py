@@ -55,7 +55,7 @@ def restaurant_now(restaurant: Restaurant, now: datetime | None = None) -> datet
 
 def resolve_turno(turni: list[Turno], requested_time: time | None) -> Turno | None:
     if requested_time is None:
-        return turni[0] if turni else None
+        return None
     for turno in turni:
         if turno.start <= requested_time < turno.end:
             return turno
@@ -180,6 +180,13 @@ def check_availability(
     # --- Turno resolution --------------------------------------------------
     selected_turno = resolve_turno(turni, requested_time)
     if not selected_turno:
+        if requested_time is None:
+            return {
+                "open": True,
+                "available": False,
+                "reason": "Manca l'orario richiesto. Chiedi al cliente a che ora desidera prenotare.",
+                "alternatives": [],
+            }
         alternatives = [
             {
                 "time": turno.start.strftime("%H:%M"),

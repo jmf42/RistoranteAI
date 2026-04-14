@@ -50,11 +50,22 @@ def check_availability_route(
     db: Session = Depends(get_db),
 ) -> CheckAvailabilityResponse:
     restaurant = get_restaurant_cached(db, payload.restaurant_id)
+    rules = restaurant.booking_rules or {}
+    large_group_threshold = int(rules.get("large_group_threshold", 8))
+    
+    # Hard-block the AI from bypassing the large group limit even if it hallucinates.
+    if payload.party_size > large_group_threshold:
+        return CheckAvailabilityResponse(
+            open=True,
+            available=False,
+            reason=f"Per gruppi superiori a {large_group_threshold} persone la prenotazione automatica non è permessa. Esegui subito escalate_to_human."
+        )
+
     result = check_availability(
         db,
         restaurant=restaurant,
         booking_date=payload.date,
-        requested_time=payload.time_preference,
+        requested_time=payload.time,
         party_size=payload.party_size,
     )
     return CheckAvailabilityResponse(**result)
@@ -66,6 +77,17 @@ def create_booking_tool(
     request: Request,
     db: Session = Depends(get_db),
 ) -> CreateBookingToolResponse:
+    restaurant = get_restaurant_cached(db, payload.restaurant_id)
+    rules = restaurant.booking_rules or {}
+    large_group_threshold = int(rules.get("large_group_threshold", 8))
+    
+    if payload.party_size > large_group_threshold:
+        return CreateBookingToolResponse(
+            success=False, 
+            reason=f"Limite superato. Trasferisci la chiamata al ristorante.", 
+            alternatives=[]
+        )
+
     # No pre-fetch needed — create_booking() does lock_restaurant() which
     # validates existence AND acquires the FOR UPDATE lock in one query.
     booking_payload = BookingCreate(

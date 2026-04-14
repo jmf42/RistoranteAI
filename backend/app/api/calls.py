@@ -16,17 +16,48 @@ from app.api.deps import (
     get_restaurant_or_404,
     require_roles,
 )
+from sqlalchemy.orm import joinedload
 from app.core.observability import json_log
-from app.core.security import mask_phone
-from app.models import CallLog, User
+from app.core.security import decrypt_pii_or_fallback, mask_phone
+from app.models import Booking, CallLog, User
 from app.schemas.calls import CallLogRead, CallSyncResponse, TranscriptResponse
 
 router = APIRouter(prefix="/calls", tags=["calls"])
 
 
 def _call_to_read(call: CallLog) -> CallLogRead:
-    raw_phone: str | None = (call.extra_data or {}).get("caller_phone")
+    extra = call.extra_data or {}
+    raw_phone: str | None = extra.get("caller_phone")
     masked = mask_phone(raw_phone) if raw_phone else None
+
+    customer_name = None
+    party_size = None
+    requested_date = None
+    requested_time = None
+
+    if call.booking:
+        customer_name = decrypt_pii_or_fallback(call.booking.customer_name_encrypted, fallback="Cliente")
+        party_size = call.booking.party_size
+        requested_date = call.booking.date.isoformat()
+        requested_time = call.booking.time.strftime("%H:%M")
+    else:
+        # Fallback: extract from tool_events
+        events = extra.get("tool_events", [])
+        for event in reversed(events):
+            args = event.get("arguments", {})
+            if "customer_name" in args and not customer_name:
+                customer_name = args["customer_name"]
+            if "party_size" in args and not party_size:
+                party_size = args["party_size"]
+            if "date" in args and not requested_date:
+                requested_date = args["date"]
+            if "time" in args and not requested_time:
+                requested_time = args["time"][:5]
+            if "time_preference" in args and not requested_time:
+                requested_time = args["time_preference"][:5]
+            if customer_name and party_size and requested_date and requested_time:
+                break
+
     return CallLogRead(
         id=call.id,
         restaurant_id=call.restaurant_id,
@@ -41,6 +72,10 @@ def _call_to_read(call: CallLog) -> CallLogRead:
         summary=call.summary,
         transcript_preview=call.transcript_preview,
         caller_phone=masked,
+        customer_name=customer_name,
+        party_size=party_size,
+        requested_date=requested_date,
+        requested_time=requested_time,
     )
 
 

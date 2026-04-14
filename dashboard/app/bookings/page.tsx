@@ -884,9 +884,20 @@ function GuestRow({
             {booking.confirmation_code} · {formatTurnoName(booking.turno)}
           </p>
           <p className="mt-2 text-sm text-ink/58">{booking.customer_phone}</p>
-          <p className="mt-2 text-sm leading-6 text-ink/55">
-            {booking.special_requests || "Nessuna nota speciale"}
-          </p>
+          {booking.special_requests ? (
+            <div className="mt-3 block rounded-[1rem] border border-gold/30 bg-gold/10 p-3">
+              <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-gold-dark opacity-80">
+                ★ Note AI / Richieste
+              </p>
+              <p className="mt-1 text-sm font-medium text-ink/90 leading-relaxed">
+                {booking.special_requests}
+              </p>
+            </div>
+          ) : (
+            <p className="mt-2 text-sm italic leading-6 text-ink/40">
+              Nessuna nota speciale
+            </p>
+          )}
         </div>
 
         {!compact && activeStatuses.has(booking.status) ? (

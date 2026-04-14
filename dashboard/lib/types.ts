@@ -109,6 +109,10 @@ export interface CallLog {
   summary: string;
   transcript_preview: string | null;
   caller_phone: string | null;
+  customer_name: string | null;
+  party_size: number | null;
+  requested_date: string | null;
+  requested_time: string | null;
 }
 
 export interface TranscriptResponse {
