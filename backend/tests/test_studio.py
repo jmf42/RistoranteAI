@@ -27,7 +27,7 @@ def test_operator_can_preview_realtime_agent_blueprint(client, db_session):
     assert payload["scenarios"]
     assert payload["effective_session_overrides"]["model"] == "gpt-realtime-1.5"
     assert payload["session_update"]["session"]["type"] == "realtime"
-    assert "Apri in italiano solo se il primo messaggio del cliente" in payload["prompt"]
+    assert "Apri in italiano solo come default iniziale" in payload["prompt"]
     assert "cambia SOLO la lingua della risposta" in payload["prompt"]
     assert "language" not in payload["session_update"]["session"]["audio"]["input"]["transcription"]
     recommendation_labels = {item["label"] for item in payload["recommendations"]}

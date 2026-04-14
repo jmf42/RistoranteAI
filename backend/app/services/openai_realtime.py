@@ -28,7 +28,6 @@ from app.services.availability import ACTIVE_STATUSES, check_availability
 from app.services.bookings import create_booking, find_bookings_for_caller, update_booking
 
 AFFIRMATIVE_WORDS = {
-    # Italian
     "si",
     "sì",
     "certo",
@@ -48,47 +47,12 @@ AFFIRMATIVE_WORDS = {
     "procedi",
     "faccia pure",
     "vai pure",
-    # English
-    "yes",
-    "yeah",
-    "yep",
-    "yup",
-    "sure",
-    "correct",
-    "absolutely",
-    "go ahead",
-    "please do",
-    "that's right",
-    "right",
-    "confirmed",
-    "of course",
-    # Spanish
-    "sí",
-    "claro",
-    "correcto",
-    "por supuesto",
-    "adelante",
-    "dale",
-    # French
-    "oui",
-    "bien sûr",
-    "parfait",
-    "exactement",
-    "c'est bon",
-    # German
-    "ja",
-    "genau",
-    "richtig",
-    "natürlich",
-    "stimmt",
-    "passt",
 }
 # Phrases an assistant turn may contain when it is explicitly asking the customer
 # to confirm a write (booking, modification, cancellation) or narrating the action
 # it is about to perform. Kept as substrings; "conferma" covers "conferma?",
 # "confermo", "confermi", "confermato".
 CONFIRMATION_CUES = {
-    # Italian
     "conferma",
     "confermo",
     "confermi",
@@ -99,29 +63,6 @@ CONFIRMATION_CUES = {
     "modifico",
     "va bene?",
     "prenotazione",
-    # English
-    "shall i",
-    "should i",
-    "go ahead",
-    "proceed",
-    "book it",
-    "confirm",
-    "reservation for",
-    "i'll book",
-    "want me to",
-    "is that correct",
-    # Spanish
-    "confirmo",
-    "reservo",
-    "le confirmo",
-    # French
-    "je confirme",
-    "je réserve",
-    "je procède",
-    # German
-    "soll ich",
-    "bestätige",
-    "reserviere",
 }
 SUPPORTED_REALTIME_MODELS = {"gpt-realtime", "gpt-realtime-1.5", "gpt-realtime-mini"}
 SUPPORTED_REALTIME_VOICES = {
@@ -553,12 +494,10 @@ def _transcription_prompt(restaurant: Restaurant) -> str:
     # IMPORTANT: Do NOT include restaurant name, address or other contextual data
     # in the transcription prompt. Whisper-family models echo prompt text verbatim
     # when audio is unclear, causing garbage transcriptions that confuse the agent.
-    # Keep this SHORT and in English — English prompts produce less hallucination
-    # than Italian ones, and shorter prompts reduce the chance of echo artifacts.
     return (
-        "Restaurant phone booking. "
-        "Transcribe exactly what the caller says in their language. "
-        "Prioritize names, party sizes, times, dates, yes/no."
+        "Trascrivi in modo naturale nella lingua parlata dal cliente. Priorità assoluta a nomi propri, "
+        "numeri di persone, orari, date e sì/no espliciti. Non inventare parole. "
+        "Non trasformare rumori, lettere isolate o frammenti senza senso in dati di prenotazione."
     )
 
 
@@ -1031,13 +970,12 @@ Personality & Tone
 - Puoi usare raramente parole naturali come "Ecco" o "Allora" se aiutano il ritmo, ma senza esagerare.
 
 Language
-- REGOLA PRINCIPALE: rispondi SEMPRE nella stessa lingua del cliente, fin dalla prima risposta.
-- Se il cliente parla inglese, rispondi in inglese. Se parla spagnolo, rispondi in spagnolo. E così via.
-- Apri in italiano solo se il primo messaggio del cliente è in italiano o non contiene parole chiare.
-- Se il cliente usa una lingua diversa dall'italiano già nel primo turno, passa subito a quella lingua. Non aspettare che te lo chieda.
+- Se il cliente parla chiaramente un'altra lingua che sai gestire, segui la lingua del cliente.
+- Apri in italiano solo come default iniziale quando il chiamante non ha ancora mostrato un'altra lingua.
+- Per impostazione predefinita, seguire la lingua del cliente funziona meglio che forzare sempre l'italiano.
 - Se cambi lingua, cambia SOLO la lingua della risposta:
   non cambiare il flusso, le regole di conferma, i tool, i criteri di sicurezza o il livello di servizio.
-- Non tornare all'italiano se il cliente continua a parlare in un'altra lingua.
+- Non cambiare lingua inutilmente a metà conversazione.
 - Se l'audio è poco chiaro, chiedi una sola volta di ripetere lentamente nella lingua che il cliente sta usando.
 - Non trasferire solo perché non sta parlando italiano.
 - Trasferisci solo se la lingua resta incomprensibile

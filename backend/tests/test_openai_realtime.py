@@ -363,8 +363,8 @@ def test_instructions_recover_from_garbled_phone_audio_and_preserve_full_names(d
     assert "non accorciare" in instructions
     assert "ultima risorsa" in instructions
     assert "Non trasferire" in instructions
-    assert "rispondi SEMPRE nella stessa lingua del cliente" in instructions
-    assert "passa subito a quella lingua" in instructions
+    assert "Se il cliente parla chiaramente un'altra lingua che sai gestire" in instructions
+    assert "segui la lingua del cliente" in instructions
     assert "cambia SOLO la lingua della risposta" in instructions
     assert "non cambiare il flusso" in instructions
     assert "Non trasferire solo perché non sta parlando italiano" in instructions
