@@ -2330,6 +2330,13 @@ async def _maybe_refresh_summary(
     state: RealtimeCallState,
     call_sid: str,
 ) -> None:
+    # Do NOT inject a mid-call summary once the call is effectively over.
+    # After a successful write or an escalation, hangup is already scheduled;
+    # any `conversation.item.create` added here can be picked up by a late
+    # VAD-triggered response (phone-line noise) and spoken aloud as a second
+    # farewell — the model, with tool scope collapsed, reads the summary text.
+    if state.terminal_write_success or state.should_escalate or state.end_call_after_response:
+        return
     if len(state.conversation_turns) < SUMMARY_TRIGGER_TURNS:
         return
     candidate_turns = state.conversation_turns[:-SUMMARY_KEEP_LAST_TURNS]
