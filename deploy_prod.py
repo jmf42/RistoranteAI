@@ -9,7 +9,7 @@ PROJECT = "ristorante-ai-20260324-9471"
 REGION = "europe-west1"
 BACKEND_SERVICE = "ristorante-ai-api"
 DASHBOARD_SERVICE = "ristorante-ai-dashboard"
-BACKEND_URL = "https://ristorante-ai-api-jc7mvuujwq-ew.a.run.app"
+BACKEND_URL = "https://ristorante-ai-api-534989834839.europe-west1.run.app"
 
 def run_step(name, path, script):
     print(f"\n{'='*60}")

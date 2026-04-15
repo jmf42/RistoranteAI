@@ -8,7 +8,7 @@ PROJECT = "ristorante-ai-20260324-9471"
 REGION = "europe-west1"
 SERVICE = "ristorante-ai-dashboard"
 # The backend URL the dashboard talks to
-BACKEND_URL = "https://ristorante-ai-api-jc7mvuujwq-ew.a.run.app"
+BACKEND_URL = "https://ristorante-ai-api-534989834839.europe-west1.run.app"
 
 print(f"🚀 Preparing dashboard deployment for project {PROJECT}...")
 
@@ -27,7 +27,7 @@ deploy_cmd = [
     "--source", ".",
     f"--project={PROJECT}",
     f"--region={REGION}",
-    f"--build-arg=NEXT_PUBLIC_API_BASE_URL={BACKEND_URL}",
+    f"--set-build-env-vars=NEXT_PUBLIC_API_BASE_URL={BACKEND_URL}",
     "--update-env-vars", f"NEXT_PUBLIC_API_BASE_URL={BACKEND_URL}"
 ]
 
