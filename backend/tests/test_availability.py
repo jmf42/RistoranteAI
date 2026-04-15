@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date, time, timedelta
 
 from sqlalchemy import select
 
@@ -30,8 +30,6 @@ def test_closed_weekday_returns_open_false(db_session):
     assert result["open"] is False
     assert "chiuso" in result["reason"].lower()
 
-
-from datetime import time
 
 def test_available_turno_returns_slot(db_session):
     restaurant = db_session.scalar(select(Restaurant).where(Restaurant.slug == "trattoria-da-mario"))

@@ -6,7 +6,7 @@
 # Project Config
 GCP_PROJECT = ristorante-ai-20260324-9471
 GCP_REGION = europe-west1
-BACKEND_SERVICE = restaurante-ai-api
+BACKEND_SERVICE = ristorante-ai-api
 DASHBOARD_SERVICE = ristorante-ai-dashboard
 BACKEND_URL = https://ristorante-ai-api-534989834839.europe-west1.run.app
 DASHBOARD_URL = https://ristorante-ai-dashboard-534989834839.europe-west1.run.app

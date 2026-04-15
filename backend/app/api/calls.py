@@ -16,10 +16,9 @@ from app.api.deps import (
     get_restaurant_or_404,
     require_roles,
 )
-from sqlalchemy.orm import joinedload
 from app.core.observability import json_log
 from app.core.security import decrypt_pii_or_fallback, mask_phone
-from app.models import Booking, CallLog, User
+from app.models import CallLog, User
 from app.schemas.calls import CallLogRead, CallSyncResponse, TranscriptResponse
 
 router = APIRouter(prefix="/calls", tags=["calls"])

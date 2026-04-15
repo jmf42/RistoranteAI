@@ -298,7 +298,8 @@ def test_instructions_pin_italian_intonation_and_confirmation_rules(db_session):
     instructions = session_update["session"]["instructions"]
     assert "intonazione italiana naturale" in instructions
     assert "esegui subito create_booking senza chiedere altre conferme o permessi" in instructions
-    assert "la fornitura del nome da parte del cliente dopo aver suggerito i dettagli equivale a una conferma tacita" in instructions
+    assert "la fornitura del nome da parte del cliente dopo aver suggerito i dettagli equivale a una" in instructions
+    assert "conferma tacita" in instructions
     assert "scandiscili elemento per elemento" in instructions
     assert "un solo nome o cognome è sufficiente" in instructions
     assert "Data attuale:" not in instructions

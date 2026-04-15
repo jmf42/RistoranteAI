@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -38,8 +38,8 @@ def tools_health() -> dict:
     """Verify tool secret authentication is working.
 
     If you reach this endpoint, the ``X-Ristorante-Tool-Secret`` header is valid.
-    Call this from OpenAI Realtime tooling or curl to confirm connectivity before running
-    real tool calls.
+    Call this from OpenAI Realtime tooling or curl to confirm connectivity before
+    running real tool calls.
     """
     return {"status": "ok", "auth": "valid"}
 
@@ -49,16 +49,27 @@ def check_availability_route(
     payload: CheckAvailabilityRequest,
     db: Session = Depends(get_db),
 ) -> CheckAvailabilityResponse:
-    restaurant = get_restaurant_cached(db, payload.restaurant_id)
+    try:
+        restaurant = get_restaurant_cached(db, payload.restaurant_id)
+    except HTTPException:
+        return CheckAvailabilityResponse(
+            open=False,
+            available=False,
+            reason="Ristorante non trovato."
+        )
     rules = restaurant.booking_rules or {}
     large_group_threshold = int(rules.get("large_group_threshold", 8))
     
     # Hard-block the AI from bypassing the large group limit even if it hallucinates.
     if payload.party_size > large_group_threshold:
+        reason = (
+            f"Per gruppi superiori a {large_group_threshold} persone la prenotazione "
+            "automatica non è permessa. Esegui subito escalate_to_human."
+        )
         return CheckAvailabilityResponse(
             open=True,
             available=False,
-            reason=f"Per gruppi superiori a {large_group_threshold} persone la prenotazione automatica non è permessa. Esegui subito escalate_to_human."
+            reason=reason
         )
 
     result = check_availability(
@@ -77,14 +88,21 @@ def create_booking_tool(
     request: Request,
     db: Session = Depends(get_db),
 ) -> CreateBookingToolResponse:
-    restaurant = get_restaurant_cached(db, payload.restaurant_id)
+    try:
+        restaurant = get_restaurant_cached(db, payload.restaurant_id)
+    except HTTPException:
+        return CreateBookingToolResponse(
+            success=False,
+            reason="Ristorante non trovato.",
+            alternatives=[]
+        )
     rules = restaurant.booking_rules or {}
     large_group_threshold = int(rules.get("large_group_threshold", 8))
     
     if payload.party_size > large_group_threshold:
         return CreateBookingToolResponse(
             success=False, 
-            reason=f"Limite superato. Trasferisci la chiamata al ristorante.", 
+            reason="Limite superato. Trasferisci la chiamata al ristorante.", 
             alternatives=[]
         )
 

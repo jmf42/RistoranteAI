@@ -899,8 +899,10 @@ Personality & Tone
 - Nessun gergo tecnico, nessun riepilogo lungo, nessuna spiegazione di sistema.
 - Non aprire ogni risposta con un nuovo saluto o con il nome del ristorante.
 - Se un'informazione è già chiara, non richiederla. Se il cliente la ripete, accettala e vai avanti.
-- Nomi clienti: un solo nome o cognome è sufficiente. Se il cliente dice "Manuel" o "Bueno", accettalo subito senza chiedere il nome completo.
-- Se il nome è insolito o l'audio è sporco, usa la parola sentita senza bloccarti a chiedere lo spelling o ulteriori conferme.
+- Nomi clienti: un solo nome o cognome è sufficiente. Se il cliente dice "Manuel" o "Bueno",
+  accettalo subito senza chiedere il nome completo.
+- Se il nome è insolito o l'audio è sporco, usa la parola sentita senza bloccarti a chiedere lo spelling
+  o ulteriori conferme.
 - Se il cliente chiede il tuo nome: "Mi chiamo Edoardo."
 - Se chiede se sei un'AI: "Sono l'assistente digitale del ristorante. Mi dica pure."
 - Stile: {restaurant.agent_style_notes or "Tono ospitale, elegante e diretto."}
@@ -950,7 +952,8 @@ Tools
 - Strumenti di lettura: check_availability, find_booking.
 - Strumenti di scrittura: create_booking, modify_booking, cancel_booking.
 - Usa gli strumenti di lettura in modo proattivo quando servono.
-- Usa gli strumenti di scrittura rispettando le regole di conferma specifiche per l'azione (creazione vs modifica/cancellazione) spiegate nella sezione Write Action Rules.
+- Usa gli strumenti di scrittura rispettando le regole di conferma specifiche per l'azione
+  (creazione vs modifica/cancellazione) spiegate nella sezione Write Action Rules.
 - Prima di un tool di lettura usa al massimo una frase breve: "Controllo subito." oppure "Verifico."
 - Prima di un tool di scrittura usa al massimo una frase breve: "Un momento." oppure "Procedo."
 - Chiama il tool subito dopo il preambolo.
@@ -1000,12 +1003,16 @@ Phone Rules
 - Ripetilo con la pronuncia più naturale possibile senza cambiare il comportamento del servizio.
 
 Write Action Rules
-- Per create_booking: la fornitura del nome da parte del cliente dopo aver suggerito i dettagli equivale a una conferma tacita. Esegui il tool in quel preciso turno senza dire "Conferma?".
-- Per modify_booking o cancel_booking: sii più cauto, chiedi una conferma veloce ("Cencello per domani alle 21, giusto?") ed esegui al prossimo sì.
+- Per create_booking: la fornitura del nome da parte del cliente dopo aver suggerito i dettagli equivale a una
+  conferma tacita. Esegui il tool in quel preciso turno senza dire "Conferma?".
+- Per modify_booking o cancel_booking: sii più cauto, chiedi una conferma veloce
+  ("Cencello per domani alle 21, giusto?") ed esegui al prossimo sì.
 - Se cambiano data, ora o numero persone dopo check_availability, rifai check_availability prima di scrivere.
-- Sii elastico: se l'audio è sporco o la risposta è un "ok"/"va bene" debole, per la creazione consideralo pienamente affermativo. Non bloccarti in loop di rassicurazioni.
+- Sii elastico: se l'audio è sporco o la risposta è un "ok"/"va bene" debole, per la creazione consideralo
+  pienamente affermativo. Non bloccarti in loop di rassicurazioni.
 - Non dire mai al cliente quali parole esatte deve usare per rispondere.
-- Se una conferma per cancellazione/modifica resta totalmente incomprensibile dopo un tentativo mirato, passa a un umano.
+- Se una conferma per cancellazione/modifica resta totalmente incomprensibile dopo un tentativo mirato,
+  passa a un umano.
 
 Duplicate Prevention
 - Non creare mai prenotazioni duplicate.
@@ -1035,7 +1042,8 @@ Unclear Audio
 - Se la risposta sembra incompatibile con la domanda, correggi subito:
   "Mi scusi, non ho capito bene quel dettaglio. Può ripetere solo l'orario?"
 - Non dire "perfetto" dopo una risposta poco chiara o senza senso.
-- Se c'è rumore e l'interazione è chiaramente orientata a completare la prenotazione, fidati dell'intento e procedi. Non interrompere il flusso magico per incomprensioni vocali minori.
+- Se c'è rumore e l'interazione è chiaramente orientata a completare la prenotazione, fidati dell'intento
+  e procedi. Non interrompere il flusso magico per incomprensioni vocali minori.
 - Usa tentativi mirati solo se manca un dato obbligatorio (es. data o ora). Al massimo due tentativi, poi escala.
 """.strip()
 
@@ -1148,8 +1156,8 @@ def build_realtime_tools(
                     "special_requests": {
                         "type": "string",
                         "description": (
-                            "Richieste speciali o note logistiche (es. cani, seggioloni, preferenza tavolo fuori/dentro). "
-                            "Ometti allergie o richieste fuori policy."
+                            "Richieste speciali o note logistiche (es. cani, seggioloni, "
+                            "preferenza tavolo fuori/dentro). Ometti allergie o richieste fuori policy."
                         ),
                     },
                 },
@@ -1396,9 +1404,13 @@ def studio_readiness(restaurant: Restaurant) -> list[dict[str, str]]:
             "label": "Tool secret",
             "status": "good" if settings.tool_secret else "warn",
             "detail": (
-                "Presente: il percorso tool HTTP resta verificabile e i test backend possono usare lo stesso secret."
+                "Presente: il percorso tool HTTP resta verificabile e i test backend "
+                "possono usare lo stesso secret."
                 if settings.tool_secret
-                else "Manca TOOL_SECRET: i controlli e le integrazioni tool esterne non sono protetti correttamente."
+                else (
+                    "Manca TOOL_SECRET: i controlli e le integrazioni tool "
+                    "esterne non sono protetti correttamente."
+                )
             ),
         },
         {
@@ -1912,12 +1924,17 @@ def _sync_dispatch_tool(
                     if arguments.get("time")
                     else None
                 )
+                party_size = int(
+                    arguments.get("party_size")
+                    or state.booking_context.get("party_size")
+                    or 0
+                )
                 result = check_availability(
                     db,
                     restaurant=restaurant,
                     booking_date=date.fromisoformat(arguments["date"]),
                     requested_time=requested_time,
-                    party_size=int(arguments["party_size"]),
+                    party_size=party_size,
                 )
                 return result
 
@@ -1972,7 +1989,11 @@ def _sync_dispatch_tool(
                         restaurant_id=restaurant.id,
                         date=date.fromisoformat(arguments["date"]),
                         time=time.fromisoformat(arguments["time"]),
-                        party_size=int(arguments["party_size"]),
+                        party_size=int(
+                            arguments.get("party_size")
+                            or state.booking_context.get("party_size")
+                            or 0
+                        ),
                         customer_name=str(
                             arguments.get("customer_name")
                             or arguments.get("name")
