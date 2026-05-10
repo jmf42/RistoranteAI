@@ -41,9 +41,9 @@ export function LoginForm() {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-5">
+    <form onSubmit={handleSubmit} className="space-y-4">
       <div className="space-y-2">
-        <label className="text-xs font-semibold uppercase tracking-[0.28em] text-ink/55" htmlFor="email">
+        <label className="text-xs font-semibold uppercase tracking-[0.22em] text-ink/55" htmlFor="email">
           Email
         </label>
         <input
@@ -51,14 +51,14 @@ export function LoginForm() {
           type="email"
           required
           autoComplete="email"
-          className="w-full rounded-2xl border border-stone bg-white/80 px-4 py-3 text-ink outline-none transition focus:border-gold"
+          className="w-full rounded-[1.1rem] border border-stone/85 bg-white px-4 py-3 text-ink outline-none transition focus:border-gold"
           value={email}
           onChange={(event) => setEmail(event.target.value)}
         />
       </div>
       <div className="space-y-2">
         <label
-          className="text-xs font-semibold uppercase tracking-[0.28em] text-ink/55"
+          className="text-xs font-semibold uppercase tracking-[0.22em] text-ink/55"
           htmlFor="password"
         >
           Password
@@ -68,7 +68,7 @@ export function LoginForm() {
           type="password"
           required
           autoComplete="current-password"
-          className="w-full rounded-2xl border border-stone bg-white/80 px-4 py-3 text-ink outline-none transition focus:border-gold"
+          className="w-full rounded-[1.1rem] border border-stone/85 bg-white px-4 py-3 text-ink outline-none transition focus:border-gold"
           value={password}
           onChange={(event) => setPassword(event.target.value)}
         />
@@ -77,7 +77,7 @@ export function LoginForm() {
       <button
         type="submit"
         disabled={submitting}
-        className="w-full rounded-2xl bg-ink px-5 py-3 text-sm font-semibold uppercase tracking-[0.28em] text-ivory transition hover:bg-night disabled:opacity-60"
+        className="w-full rounded-[1.1rem] bg-ink px-5 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-ivory transition hover:bg-night disabled:opacity-60"
       >
         {submitting ? "Accesso..." : "Entra nella dashboard"}
       </button>

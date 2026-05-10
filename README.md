@@ -1,6 +1,6 @@
 # Ristorante AI
 
-Last updated: `2026-04-10`
+Last updated: `2026-05-10`
 
 Ristorante AI is an AI phone receptionist and restaurant operations dashboard.
 
@@ -16,7 +16,7 @@ The stack is live on Google Cloud Run and Supabase:
 
 - frontend: `https://ristorante-ai-dashboard-jc7mvuujwq-ew.a.run.app`
 - backend: `https://ristorante-ai-api-jc7mvuujwq-ew.a.run.app`
-- database: Supabase Postgres, repo migration target currently `0011 (head)`
+- database: Supabase Postgres, repo migration target currently `0012 (head)`
 
 Important:
 
@@ -27,6 +27,7 @@ Important:
 - real PSTN calls have verified the OpenAI Realtime path, booking tools, transcript persistence, and usage logging
 - the `2026-04-10` call review found reliability and prompt fixes that must be redeployed before the next live validation
 - the studio now supports single-scenario text simulation and multi-scenario `simulate-suite` regression runs
+- public online reservations are implemented locally through `/reserve/[slug]` and `/reserve/manage/[token]`
 
 Read `/Users/juanmanuelfontes/Ristorante AI/docs/PRODUCTION_STATE.md` before making any production claims.
 
@@ -75,9 +76,9 @@ python3 scripts/production_smoke_test.py
 ## Repo Map
 
 - `backend/`
-  FastAPI app, Alembic migrations, tests, and deployment packaging.
+  FastAPI app, Alembic migrations, tests, deployment packaging, and public reservation API.
 - `dashboard/`
-  Next.js owner/operator dashboard.
+  Next.js owner/operator dashboard plus public reservation pages.
 - `docs/`
   the real handoff layer for engineering, deployment, and integrations.
 - `scripts/`

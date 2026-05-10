@@ -117,6 +117,15 @@ def hash_phone(phone_number: str) -> str:
     return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
 
 
+def normalize_email(email: str) -> str:
+    return email.strip().lower()
+
+
+def hash_email(email: str) -> str:
+    normalized = normalize_email(email)
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+
 def create_access_token(
     *,
     user_id: str,

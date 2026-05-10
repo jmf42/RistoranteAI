@@ -37,8 +37,8 @@ export function ConfirmSheet({
         className="absolute inset-0"
         onClick={onCancel}
       />
-      <div className="relative z-[71] w-full max-w-lg rounded-[2rem] border border-white/60 bg-white/95 p-5 shadow-[0_28px_80px_rgba(22,16,12,0.22)] backdrop-blur sm:p-6">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-terracotta/70">Conferma azione</p>
+      <div className="ui-shell-surface relative z-[71] w-full max-w-lg rounded-[2rem] p-5 sm:p-6">
+        <p className="ui-kicker text-[11px] font-semibold uppercase text-terracotta/72">Conferma azione</p>
         <h3 className="mt-3 font-display text-3xl text-ink">{title}</h3>
         <p className="mt-3 text-sm leading-7 text-ink/65">{description}</p>
         {children ? <div className="mt-4">{children}</div> : null}

@@ -1,6 +1,6 @@
 # Database
 
-Last updated: `2026-04-10`
+Last updated: `2026-05-10`
 
 This document describes the current database shape relevant to the phone agent.
 
@@ -14,6 +14,8 @@ Supabase Postgres is the source of truth for:
 - booking events
 - customers
 - call logs
+- guest booking tokens
+- notification outbox entries
 
 The voice model never becomes the source of truth for reservations.
 
@@ -36,6 +38,7 @@ Important fields:
 - `escalation_phone`
 - `openai_prompt_override`
 - `openai_realtime_settings`
+- `online_booking_settings`
 
 Compatibility-only legacy field still present:
 
@@ -73,13 +76,20 @@ Compatibility-only legacy field still present:
 
 ## Booking Write Path
 
-Phone-agent writes still go through the same existing booking tables and services as dashboard writes.
+Phone-agent, dashboard, and public web reservation writes all go through the same booking tables and services.
 
 - new booking → `bookings`
 - modify booking → `bookings` + `booking_events`
 - cancel booking → `bookings` + `booking_events`
 
-The voice runtime does not bypass the booking engine.
+The voice runtime and public reservation runtime do not bypass the booking engine.
+
+Public web reservations add:
+
+- guest email storage on `bookings` and `customers`
+- `booking_guest_tokens` for temporary manage links
+- `notification_outbox` for queued email notifications
+- `channel_metadata` and `idempotency_key` on bookings for safer web submissions
 
 ## Config Freshness Note
 
@@ -91,6 +101,8 @@ Restaurant config used on the hot tool path is cached briefly in memory for perf
   generic voice-provider fields for the new runtime
 - `20260405_0011_persist_openai_agent_config.py`
   per-restaurant prompt/session config persistence
+- `20260419_0012_public_online_reservations.py`
+  public reservation settings, guest manage links, email fields, and notification outbox
 
 ## Production Rule
 

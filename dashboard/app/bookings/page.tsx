@@ -75,6 +75,9 @@ export default function BookingsPage() {
     if (selectedTurno === "all") {
       return;
     }
+    if (!turnOptions.length) {
+      return;
+    }
     if (!turnOptions.some((turno) => turno.name === selectedTurno)) {
       setSelectedTurno("all");
     }
@@ -301,8 +304,8 @@ export default function BookingsPage() {
       date: booking.date,
       time: booking.time,
       party_size: booking.party_size,
-      customer_name: booking.customer_name,
-      customer_phone: booking.customer_phone,
+      customer_name: normalizeBookingField(booking.customer_name) ?? "",
+      customer_phone: normalizeBookingField(booking.customer_phone) ?? "",
       special_requests: booking.special_requests ?? "",
     });
   }
@@ -429,7 +432,7 @@ export default function BookingsPage() {
     >
       <div className="space-y-6">
         <SectionCard title="Giorni in arrivo" kicker="Chi hai in sala">
-          <div className="grid gap-3 lg:grid-cols-5">
+          <div className="ui-snap-row -mx-1 flex gap-3 overflow-x-auto px-1 pb-1 lg:mx-0 lg:grid lg:grid-cols-5 lg:overflow-visible lg:px-0">
             {upcomingDays.map((day) => (
               <button
                 key={day.date}
@@ -438,7 +441,7 @@ export default function BookingsPage() {
                   setSelectedDate(day.date);
                   setSelectedTurno("all");
                 }}
-                className={`rounded-[1.45rem] border p-4 text-left transition ${
+                className={`min-w-[220px] snap-start rounded-[1.45rem] border p-4 text-left transition lg:min-w-0 ${
                   day.selected
                     ? "border-gold bg-ivory/92 shadow-card"
                     : "border-stone/80 bg-white/70 hover:border-gold hover:bg-ivory/80"
@@ -451,21 +454,11 @@ export default function BookingsPage() {
                 <p className="mt-1 text-sm text-ink/60">
                   {day.bookings} {day.bookings === 1 ? "prenotazione" : "prenotazioni"}
                 </p>
-                <div className="mt-4 space-y-2">
-                  {day.previewBookings.length ? (
-                    day.previewBookings.map((booking) => (
-                      <div key={booking.id} className="rounded-2xl bg-ivory/70 px-3 py-2">
-                        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-ink/44">
-                          {booking.time.slice(0, 5)} · {booking.party_size}{" "}
-                          {booking.party_size === 1 ? "coperto" : "coperti"}
-                        </p>
-                        <p className="mt-1 text-sm font-medium text-ink">{booking.customer_name}</p>
-                      </div>
-                    ))
-                  ) : (
-                    <p className="text-xs leading-6 text-ink/52">Nessun ospite confermato</p>
-                  )}
-                </div>
+                <p className="mt-4 text-xs font-semibold uppercase tracking-[0.16em] text-ink/44">
+                  {day.previewBookings.length
+                    ? `Primo arrivo ${day.previewBookings[0].time.slice(0, 5)}`
+                    : "Nessun ospite confermato"}
+                </p>
               </button>
             ))}
           </div>
@@ -512,11 +505,11 @@ export default function BookingsPage() {
                 </button>
               </div>
 
-              <div className="flex flex-wrap gap-2">
+              <div className="ui-snap-row -mx-1 flex gap-2 overflow-x-auto px-1 pb-1 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0">
                 <button
                   type="button"
                   onClick={() => setSelectedTurno("all")}
-                  className={serviceChipClass(selectedTurno === "all")}
+                  className={`${serviceChipClass(selectedTurno === "all")} shrink-0 whitespace-nowrap`}
                 >
                   Tutto il giorno
                 </button>
@@ -525,7 +518,7 @@ export default function BookingsPage() {
                     key={turno.name}
                     type="button"
                     onClick={() => setSelectedTurno(turno.name)}
-                    className={serviceChipClass(selectedTurno === turno.name)}
+                    className={`${serviceChipClass(selectedTurno === turno.name)} shrink-0 whitespace-nowrap`}
                   >
                     {formatTurnoName(turno.name)}
                   </button>
@@ -623,6 +616,13 @@ export default function BookingsPage() {
                             </StatusBadge>
                           </div>
                         ) : null}
+                        <div className="hidden grid-cols-[96px_minmax(0,1.4fr)_120px_minmax(0,1fr)_auto] items-center gap-3 rounded-[1.2rem] border border-stone/70 bg-ivory/55 px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-ink/42 lg:grid">
+                          <span>Orario</span>
+                          <span>Nome</span>
+                          <span>Coperti</span>
+                          <span>Telefono / origine</span>
+                          <span className="text-right">Azioni</span>
+                        </div>
                         {group.bookings.map((booking) => (
                           <GuestRow
                             key={booking.id}
@@ -679,9 +679,12 @@ export default function BookingsPage() {
                   <div className="flex flex-wrap items-center gap-2">
                     <StatusBadge tone="warn">{selectedBooking.confirmation_code}</StatusBadge>
                     <StatusBadge tone="neutral">{formatTurnoName(selectedBooking.turno)}</StatusBadge>
+                    <StatusBadge tone={sourceTone(selectedBooking.source)}>
+                      {sourceLabel(selectedBooking.source)}
+                    </StatusBadge>
                   </div>
                   <p className="mt-3 text-sm leading-6 text-ink/68">
-                    Stai aggiornando la prenotazione di <strong>{selectedBooking.customer_name}</strong>.
+                    Stai aggiornando la prenotazione di <strong>{bookingDisplayName(selectedBooking.customer_name) ?? "ospite senza nome"}</strong>.
                   </p>
                 </div>
               ) : (
@@ -826,8 +829,8 @@ export default function BookingsPage() {
         description={
           pendingStatusChange
             ? pendingStatusChange.nextStatus === "cancelled"
-              ? `Stai per cancellare la prenotazione di ${pendingStatusChange.booking.customer_name}.`
-              : `Stai per segnare come no-show la prenotazione di ${pendingStatusChange.booking.customer_name}.`
+              ? `Stai per cancellare la prenotazione di ${bookingDisplayName(pendingStatusChange.booking.customer_name) ?? "questo ospite"}.`
+              : `Stai per segnare come no-show la prenotazione di ${bookingDisplayName(pendingStatusChange.booking.customer_name) ?? "questo ospite"}.`
             : ""
         }
         confirmLabel={
@@ -861,6 +864,8 @@ function GuestRow({
   onStatusChange?: (nextStatus: BookingStatus) => void;
   compact?: boolean;
 }) {
+  const displayName = bookingDisplayName(booking.customer_name);
+  const displayPhone = bookingDisplayPhone(booking.customer_phone);
   const tone =
     booking.status === "confirmed"
       ? "good"
@@ -872,54 +877,84 @@ function GuestRow({
 
   return (
     <article className="rounded-[1.4rem] border border-stone/80 bg-white/78 p-4">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <p className="font-display text-3xl text-ink">{booking.time.slice(0, 5)}</p>
-            <StatusBadge tone="neutral">{booking.party_size} {booking.party_size === 1 ? "persona" : "persone"}</StatusBadge>
-            <StatusBadge tone={tone}>{statusLabel(booking.status)}</StatusBadge>
+      <div className="grid gap-3 lg:grid-cols-[96px_minmax(0,1.4fr)_120px_minmax(0,1fr)_auto] lg:items-center">
+        <div className="flex items-center gap-2 lg:block">
+          <p className="font-display text-3xl text-ink">{booking.time.slice(0, 5)}</p>
+          <div className="lg:mt-2">
+            <StatusBadge tone={tone} compact>
+              {statusLabel(booking.status)}
+            </StatusBadge>
           </div>
-          <p className="mt-3 font-semibold text-ink">{booking.customer_name}</p>
-          <p className="mt-2 text-sm text-ink/58">
-            {booking.confirmation_code} · {formatTurnoName(booking.turno)}
+        </div>
+
+        <div className="min-w-0">
+          <p className={`font-semibold ${displayName ? "text-ink" : "text-ink/42"}`}>
+            {displayName ?? "Ospite senza nome"}
           </p>
-          <p className="mt-2 text-sm text-ink/58">{booking.customer_phone}</p>
+          <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-ink/56">
+            <p>
+              {booking.confirmation_code} · {formatTurnoName(booking.turno)}
+            </p>
+            <StatusBadge tone={sourceTone(booking.source)} compact>
+              {sourceLabel(booking.source)}
+            </StatusBadge>
+          </div>
           {booking.special_requests ? (
-            <div className="mt-3 block rounded-[1rem] border border-gold/30 bg-gold/10 p-3">
-              <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-gold-dark opacity-80">
-                ★ Note AI / Richieste
-              </p>
-              <p className="mt-1 text-sm font-medium text-ink/90 leading-relaxed">
-                {booking.special_requests}
-              </p>
+            <p className="mt-2 text-sm leading-6 text-ink/62">{booking.special_requests}</p>
+          ) : null}
+        </div>
+
+        <div className="flex items-center gap-2 lg:justify-start">
+          <StatusBadge tone="neutral">{booking.party_size} {booking.party_size === 1 ? "persona" : "persone"}</StatusBadge>
+        </div>
+
+        <div className="text-sm">
+          {displayPhone ? (
+            <div className="space-y-2">
+              <a
+                href={phoneHref(displayPhone)}
+                className="font-medium text-ink/68 underline decoration-stone/70 underline-offset-4 transition hover:text-ink"
+              >
+                {displayPhone}
+              </a>
+              <div className="lg:hidden">
+                <StatusBadge tone={sourceTone(booking.source)} compact>
+                  {sourceLabel(booking.source)}
+                </StatusBadge>
+              </div>
             </div>
           ) : (
-            <p className="mt-2 text-sm italic leading-6 text-ink/40">
-              Nessuna nota speciale
-            </p>
+            <div className="space-y-2">
+              <span className="text-ink/42">Telefono non disponibile</span>
+              <div className="lg:hidden">
+                <StatusBadge tone={sourceTone(booking.source)} compact>
+                  {sourceLabel(booking.source)}
+                </StatusBadge>
+              </div>
+            </div>
           )}
         </div>
 
         {!compact && activeStatuses.has(booking.status) ? (
-          <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
+          <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:justify-end">
             <button
               type="button"
               onClick={onEdit}
-              className="rounded-full border border-stone px-3 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-ink/70 transition hover:border-gold"
+              className="rounded-full border border-stone px-3 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-ink/70 transition hover:border-gold"
             >
               Modifica
             </button>
             <button
               type="button"
               onClick={() => onStatusChange?.("no_show")}
-              className="rounded-full border border-stone px-3 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-ink/70 transition hover:border-gold"
+              className="rounded-full border border-stone px-3 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-ink/70 transition hover:border-gold"
             >
               No-show
             </button>
             <button
               type="button"
               onClick={() => onStatusChange?.("cancelled")}
-              className="col-span-2 rounded-full bg-terracotta px-3 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-white transition hover:bg-terracotta/85 sm:col-span-1"
+              className="col-span-2 rounded-full bg-terracotta px-3 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-white transition hover:bg-terracotta/85 sm:col-span-1"
             >
               Cancella
             </button>
@@ -970,6 +1005,19 @@ function statusLabel(status: BookingStatus) {
   return "Completata";
 }
 
+function sourceLabel(source: Booking["source"]) {
+  if (source === "ai_phone") return "Telefono AI";
+  if (source === "web") return "Web";
+  if (source === "dashboard") return "Dashboard";
+  return "Walk-in";
+}
+
+function sourceTone(source: Booking["source"]) {
+  if (source === "ai_phone") return "warn";
+  if (source === "web") return "good";
+  return "neutral";
+}
+
 function formatTurnoName(value: string) {
   const normalized = value.trim();
   if (!normalized) {
@@ -993,6 +1041,7 @@ function formatBookingEventLabel(eventType: string) {
 function formatBookingActor(changedBy: string | null) {
   if (!changedBy) return "Sistema";
   if (changedBy === "ai_phone") return "Telefono AI";
+  if (changedBy === "openai_realtime") return "OpenAI Realtime";
   if (changedBy.startsWith("user:")) return changedBy.slice(5);
   return changedBy;
 }
@@ -1016,4 +1065,28 @@ function fieldLabel(key: string) {
   if (key === "turno") return "Servizio";
   if (key === "confirmation_code") return "Codice";
   return key.replaceAll("_", " ");
+}
+
+function phoneHref(value: string) {
+  const cleaned = value.replace(/[^\d+]/g, "");
+  return `tel:${cleaned || value}`;
+}
+
+function normalizeBookingField(value: string | null | undefined) {
+  const trimmed = value?.trim() ?? "";
+  if (!trimmed) {
+    return null;
+  }
+  if (trimmed.toLowerCase() === "dato non disponibile") {
+    return null;
+  }
+  return trimmed;
+}
+
+function bookingDisplayName(value: string | null | undefined) {
+  return normalizeBookingField(value);
+}
+
+function bookingDisplayPhone(value: string | null | undefined) {
+  return normalizeBookingField(value);
 }

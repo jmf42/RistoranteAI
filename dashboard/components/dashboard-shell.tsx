@@ -58,7 +58,7 @@ export function DashboardShell({
       navigation
         .filter((item) => {
           if (user?.role === "owner") {
-            return ["/", "/calls", "/settings"].includes(item.href);
+            return ["/", "/bookings", "/calls", "/settings"].includes(item.href);
           }
           return !item.operatorOnly || user?.role === "operator";
         })
@@ -157,9 +157,9 @@ export function DashboardShell({
 
   if (loading || !user) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-grain px-6">
-        <div className="rounded-[2rem] border border-white/70 bg-white/75 px-8 py-10 text-center shadow-card">
-          <p className="ui-kicker text-xs font-semibold uppercase tracking-[0.24em] text-terracotta/70 sm:tracking-[0.32em]">
+      <div className="flex min-h-screen items-center justify-center px-6">
+        <div className="ui-shell-surface rounded-[2rem] px-8 py-10 text-center">
+          <p className="ui-kicker text-xs font-semibold uppercase text-terracotta/72 sm:text-[11px]">
             Ristorante AI
           </p>
           <p className="ui-display-title mt-4 font-display text-3xl text-ink">Carico la postazione...</p>
@@ -169,12 +169,12 @@ export function DashboardShell({
   }
 
   return (
-    <div className="min-h-screen bg-grain text-ink">
-      <div className="lg:hidden sticky top-0 z-40 px-3 pt-3">
-        <div className="rounded-[1.6rem] border border-white/75 bg-white/78 px-4 py-3 shadow-card backdrop-blur">
+    <div className="min-h-screen text-ink">
+      <div className="lg:hidden sticky top-0 z-40 px-3 pt-2">
+        <div className="ui-shell-surface rounded-[1.35rem] px-4 py-3">
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">
-              <p className="ui-kicker text-[10px] font-semibold uppercase tracking-[0.22em] text-terracotta/70">
+              <p className="ui-kicker text-[10px] font-semibold uppercase text-terracotta/72">
                 Ristorante AI
               </p>
               <p className="truncate text-base font-semibold text-ink">{title}</p>
@@ -198,18 +198,23 @@ export function DashboardShell({
             type="button"
             aria-label="Chiudi menu"
             onClick={() => setMobileMenuOpen(false)}
-            className="absolute inset-0 bg-night/45 backdrop-blur-[2px]"
+            className="absolute inset-0 bg-night/45"
           />
-          <aside className="fixed inset-y-0 right-0 w-[min(90vw,24rem)] overflow-y-auto border-l border-white/10 bg-night px-5 py-5 text-ivory shadow-[0_24px_90px_rgba(16,12,10,0.55)]">
+          <aside className="ui-night-surface fixed inset-y-0 right-0 w-[min(90vw,24rem)] overflow-y-auto border-l px-5 py-5 text-ivory">
             <div className="flex items-start justify-between gap-4">
-              <div>
-                <p className="ui-kicker text-xs font-semibold uppercase tracking-[0.24em] text-gold/80">
+              <div className="flex items-start gap-4">
+                <div className="ui-brand-mark h-14 w-14 text-[1.7rem]">
+                  <span className="font-display italic leading-none">R</span>
+                </div>
+                <div>
+                  <p className="ui-kicker text-xs font-semibold uppercase text-gold/78">
                   Italian hospitality OS
-                </p>
-                <h1 className="ui-display-title mt-3 font-display text-3xl">Ristorante AI</h1>
-                <p className="mt-2 text-sm text-ivory/68">
-                  Postazione operativa pensata per il banco, anche da telefono.
-                </p>
+                  </p>
+                  <h1 className="ui-display-title mt-3 font-display text-3xl">Ristorante AI</h1>
+                  <p className="mt-2 text-sm text-ivory/68">
+                    Postazione operativa pensata per il banco, anche da telefono.
+                  </p>
+                </div>
               </div>
               <button
                 type="button"
@@ -263,7 +268,7 @@ export function DashboardShell({
             </nav>
 
             <div className="mt-7 rounded-[1.5rem] border border-white/10 bg-white/5 p-4">
-              <p className="text-xs uppercase tracking-[0.24em] text-gold/72">Workspace</p>
+              <p className="ui-kicker text-xs uppercase text-gold/72">Workspace</p>
               <p className="mt-3 font-medium text-white">
                 {restaurant ? restaurant.name : "Nessun ristorante attivo"}
               </p>
@@ -286,7 +291,7 @@ export function DashboardShell({
             </div>
 
             <div className="mt-4 rounded-[1.5rem] border border-white/10 bg-white/5 p-4">
-              <p className="text-xs uppercase tracking-[0.24em] text-gold/72">Profilo</p>
+              <p className="ui-kicker text-xs uppercase text-gold/72">Profilo</p>
               <p className="mt-3 font-medium text-white">{user.full_name}</p>
               <p className="text-sm text-ivory/65">{user.email}</p>
               <button
@@ -304,19 +309,27 @@ export function DashboardShell({
         </div>
       ) : null}
 
-      <div className="mx-auto flex max-w-[1500px] flex-col gap-5 px-3 pb-32 pt-3 lg:flex-row lg:gap-6 lg:px-6 lg:py-5 lg:pb-5">
-        <aside className="hidden lg:block lg:sticky lg:top-5 lg:h-[calc(100vh-2.5rem)] lg:w-[280px] lg:flex-none">
-          <div className="flex h-full flex-col rounded-[2rem] border border-white/70 bg-night px-6 py-7 text-ivory shadow-card">
-            <div>
-              <p className="ui-kicker text-xs font-semibold uppercase tracking-[0.24em] text-gold/80 sm:tracking-[0.34em]">
+      <div className="mx-auto flex max-w-[1500px] flex-col gap-4 px-3 pb-28 pt-2 lg:flex-row lg:gap-6 lg:px-6 lg:py-5 lg:pb-5">
+        <aside className="hidden lg:block lg:sticky lg:top-5 lg:h-[calc(100vh-2.5rem)] lg:w-[300px] lg:flex-none">
+          <div className="ui-night-surface flex h-full flex-col rounded-[2rem] px-6 py-7 text-ivory">
+            <div className="flex items-start gap-4">
+              <div className="ui-brand-mark">
+                <span className="font-display text-[2.15rem] italic leading-none">R</span>
+              </div>
+              <div>
+                <p className="ui-kicker text-xs font-semibold uppercase text-gold/80 sm:text-[11px]">
                 {isOwner ? "Owner board" : "Italian hospitality OS"}
-              </p>
-              <h1 className="ui-display-title mt-4 font-display text-4xl">Ristorante AI</h1>
-              <p className="mt-3 text-sm text-ivory/70">
-                {isOwner
-                  ? "Agenda servizi e chiamate in un’unica vista calma e leggibile."
-                  : "Più tavoli pieni, meno telefonate al banco. Tutto in una sola cabina di regia."}
-              </p>
+                </p>
+                <h1 className="mt-4 font-display text-[2.65rem] leading-[0.92] tracking-[-0.01em]">
+                  <span className="block whitespace-nowrap">Ristorante</span>
+                  <span className="block whitespace-nowrap">AI</span>
+                </h1>
+                <p className="mt-3 text-sm leading-6 text-ivory/70">
+                  {isOwner
+                    ? "Agenda servizi e chiamate in un’unica vista calma e leggibile."
+                    : "Più tavoli pieni, meno telefonate al banco. Tutto in una sola cabina di regia."}
+                </p>
+              </div>
             </div>
             <nav className="mt-10 space-y-2">
               {visibleNavigation.map((item) => {
@@ -340,7 +353,7 @@ export function DashboardShell({
             </nav>
             {!isOwner && readinessItems.length ? (
               <div className="mt-8 rounded-[1.7rem] border border-white/10 bg-white/5 p-4">
-                <p className="text-xs uppercase tracking-[0.28em] text-gold/70">Stato ristorante</p>
+                <p className="ui-kicker text-xs uppercase text-gold/70">Stato ristorante</p>
                 <div className="mt-4 space-y-2">
                   {readinessItems.map((item) => (
                     <div
@@ -357,7 +370,7 @@ export function DashboardShell({
               </div>
             ) : null}
             <div className="mt-auto rounded-[1.7rem] border border-white/10 bg-white/5 p-4">
-              <p className="text-xs uppercase tracking-[0.28em] text-gold/70">Profilo</p>
+              <p className="ui-kicker text-xs uppercase text-gold/70">Profilo</p>
               <p className="mt-3 font-medium text-white">{user.full_name}</p>
               <p className="text-sm text-ivory/65">{user.email}</p>
               <button
@@ -375,33 +388,36 @@ export function DashboardShell({
         </aside>
 
         <main className="min-w-0 flex-1">
-          <div className="rounded-[1.85rem] border border-white/75 bg-white/72 p-4 shadow-card backdrop-blur sm:p-5 lg:rounded-[2.25rem] lg:p-7">
-            <header className="mb-5 flex flex-col gap-4 border-b border-stone/80 pb-5 xl:mb-6 xl:flex-row xl:items-end xl:justify-between xl:gap-5 xl:pb-6">
-              <div>
-                <p className="ui-kicker text-xs font-semibold uppercase tracking-[0.24em] text-terracotta/70 sm:tracking-[0.32em]">
+          <div className="ui-shell-surface rounded-[1.6rem] p-3 sm:p-5 lg:rounded-[2.25rem] lg:p-7">
+            <header className="mb-4 flex flex-col gap-3 border-b border-stone/60 pb-4 sm:mb-5 sm:gap-4 sm:pb-5 xl:mb-6 xl:flex-row xl:items-end xl:justify-between xl:gap-5 xl:pb-6">
+              <div className="min-w-0">
+                <p className="ui-kicker text-xs font-semibold uppercase text-terracotta/72 sm:text-[11px]">
                   {restaurant ? restaurant.name : "Workspace"}
                 </p>
-                <h2 className="ui-display-title mt-3 font-display text-3xl text-ink sm:text-4xl">
+                <h2 className="ui-display-title mt-2 font-display text-[2.35rem] leading-[0.94] text-ink sm:mt-3 sm:text-4xl">
                   {title}
                 </h2>
-                <p className="mt-2 max-w-2xl text-sm leading-6 text-ink/65">{subtitle}</p>
-                <div className="mt-4 flex flex-wrap gap-2.5">
+                <p className="mt-2 hidden max-w-2xl text-sm leading-6 text-ink/65 sm:block">{subtitle}</p>
+                <div className="mt-3 flex flex-wrap gap-2 sm:mt-4 sm:gap-2.5">
                   <StatusBadge tone="neutral">{todayLabel}</StatusBadge>
-                  {!isOwner
-                    ? headerReadinessItems.map((item) => (
+                  {!isOwner ? (
+                    <div className="hidden sm:flex sm:flex-wrap sm:gap-2.5">
+                      {headerReadinessItems.map((item) => (
                         <StatusBadge key={item.label} tone={item.tone}>
                           {item.label}
                         </StatusBadge>
-                      ))
-                    : null}
+                      ))}
+                    </div>
+                  ) : null}
                 </div>
               </div>
               <div className="flex w-full flex-col gap-2.5 sm:flex-row sm:flex-wrap sm:items-center xl:w-auto xl:justify-end">
+                <div className="hidden sm:flex sm:flex-row sm:flex-wrap sm:items-center sm:gap-2.5">
                 {user.role === "operator" && restaurants.length ? (
                   <label className="flex w-full flex-col gap-2 text-xs font-semibold uppercase tracking-[0.24em] text-ink/45 sm:min-w-[240px] sm:flex-1 xl:flex-none">
                     Ristorante attivo
                     <select
-                      className="rounded-2xl border border-stone bg-ivory/80 px-4 py-3 text-sm font-medium normal-case tracking-normal text-ink outline-none transition focus:border-gold"
+                      className="rounded-2xl border border-stone/80 bg-white/70 px-4 py-3 text-sm font-medium normal-case tracking-normal text-ink outline-none transition focus:border-gold"
                       value={activeRestaurantId ?? ""}
                       onChange={(event) => setActiveRestaurantId(event.target.value)}
                     >
@@ -414,10 +430,11 @@ export function DashboardShell({
                   </label>
                 ) : null}
                 {!isOwner && (
-                  <div className="min-w-0 rounded-[1.25rem] border border-stone bg-ivory/70 px-4 py-3 text-sm leading-6 text-ink/65 sm:flex-1 xl:max-w-[320px] xl:flex-none">
+                  <div className="min-w-0 rounded-[1.25rem] border border-stone/70 bg-white/65 px-4 py-3 text-sm leading-6 text-ink/65 sm:flex-1 xl:max-w-[320px] xl:flex-none">
                     {restaurant ? restaurant.address : "Nessun ristorante attivo"}
                   </div>
                 )}
+                </div>
                 {actions ? (
                   <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:flex-wrap sm:justify-end">
                     {actions}
@@ -441,7 +458,7 @@ export function DashboardShell({
       </div>
 
       <div className="lg:hidden fixed inset-x-0 bottom-0 z-40 px-3 pb-[calc(0.8rem+env(safe-area-inset-bottom))]">
-        <div className={`grid ${user?.role === "operator" ? "grid-cols-5" : "grid-cols-3"} gap-1 rounded-[1.55rem] border border-white/10 bg-night/92 p-1.5 shadow-[0_24px_80px_rgba(16,12,10,0.4)] backdrop-blur`}>
+        <div className={`grid ${user?.role === "operator" ? "grid-cols-5" : "grid-cols-4"} gap-1 rounded-[1.4rem] border border-white/10 bg-night/92 p-1.5 shadow-[0_18px_48px_rgba(16,12,10,0.32)]`}>
           {mobilePrimaryNavigation.map((item) => {
             const Icon = item.icon;
             const active = pathname === item.href;
@@ -452,7 +469,7 @@ export function DashboardShell({
                 className={`flex min-w-0 flex-col items-center gap-1 rounded-[1rem] px-1.5 py-2 text-[10px] font-semibold transition ${
                   active
                     ? "bg-ivory text-ink shadow-[0_10px_24px_rgba(255,248,238,0.18)]"
-                    : "text-ivory/60"
+                    : "text-ivory/72"
                 }`}
               >
                 <Icon size={18} />

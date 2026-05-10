@@ -12,15 +12,15 @@ export function SectionCard({
   action?: ReactNode;
 }) {
   return (
-    <section className="min-w-0 rounded-[2rem] border border-stone/80 bg-white/80 p-5 shadow-card backdrop-blur sm:p-6">
-      <div className="mb-5 flex flex-col gap-4 2xl:flex-row 2xl:items-start 2xl:justify-between">
+    <section className="ui-soft-surface min-w-0 rounded-[2rem] p-5 sm:p-6">
+      <div className="mb-4 flex flex-col gap-3 2xl:flex-row 2xl:items-start 2xl:justify-between">
         <div className="min-w-0">
           {kicker ? (
-            <p className="ui-kicker mb-2 text-xs font-semibold uppercase tracking-[0.24em] text-terracotta/70 sm:tracking-[0.32em]">
+            <p className="ui-kicker mb-2 text-xs font-semibold uppercase text-terracotta/72 sm:text-[11px]">
               {kicker}
             </p>
           ) : null}
-          <h2 className="ui-display-title font-display text-2xl text-ink">{title}</h2>
+          <h2 className="ui-display-title font-display text-[1.85rem] text-ink sm:text-2xl">{title}</h2>
         </div>
         {action ? <div className="w-full min-w-0 lg:w-auto lg:flex-none">{action}</div> : null}
       </div>

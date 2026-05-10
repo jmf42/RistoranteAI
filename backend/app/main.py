@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from starlette.responses import JSONResponse
 
-from app.api import analytics, auth, bookings, calls, owner, restaurants, studio, tools, twilio
+from app.api import analytics, auth, bookings, calls, owner, public, restaurants, studio, tools, twilio
 from app.core.config import settings
 from app.core.database import SessionLocal, init_db
 from app.core.observability import client_ip_for_request, configure_logging, get_request_id, logging_middleware
@@ -55,6 +55,8 @@ def _rate_limit_for_path(path: str) -> tuple[str, int]:
         return "auth", settings.rate_limit_auth_requests_per_window
     if path.startswith(f"{settings.api_prefix}/tools/"):
         return "sensitive", settings.rate_limit_sensitive_requests_per_window
+    if path.startswith(f"{settings.api_prefix}/public/"):
+        return "public", settings.rate_limit_public_requests_per_window
     return "default", settings.rate_limit_requests_per_window
 
 
@@ -102,6 +104,7 @@ app.include_router(owner.router, prefix=settings.api_prefix)
 app.include_router(analytics.router, prefix=settings.api_prefix)
 app.include_router(studio.router, prefix=settings.api_prefix)
 app.include_router(tools.router, prefix=settings.api_prefix)
+app.include_router(public.router, prefix=settings.api_prefix)
 app.include_router(twilio.router, prefix=settings.api_prefix)
 
 

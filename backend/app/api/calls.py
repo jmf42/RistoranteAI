@@ -17,7 +17,7 @@ from app.api.deps import (
     require_roles,
 )
 from app.core.observability import json_log
-from app.core.security import decrypt_pii_or_fallback, mask_phone
+from app.core.security import decrypt_pii_or_fallback
 from app.models import CallLog, User
 from app.schemas.calls import CallLogRead, CallSyncResponse, TranscriptResponse
 
@@ -27,7 +27,6 @@ router = APIRouter(prefix="/calls", tags=["calls"])
 def _call_to_read(call: CallLog) -> CallLogRead:
     extra = call.extra_data or {}
     raw_phone: str | None = extra.get("caller_phone")
-    masked = mask_phone(raw_phone) if raw_phone else None
 
     customer_name = None
     party_size = None
@@ -70,7 +69,7 @@ def _call_to_read(call: CallLog) -> CallLogRead:
         booking_id=call.booking_id,
         summary=call.summary,
         transcript_preview=call.transcript_preview,
-        caller_phone=masked,
+        caller_phone=raw_phone,
         customer_name=customer_name,
         party_size=party_size,
         requested_date=requested_date,
@@ -111,6 +110,7 @@ def list_calls(
                 CallLog.call_status == "failed",
                 CallLog.outcome == "tool_error",
                 CallLog.outcome == "abandoned",
+                CallLog.outcome == "escalation_failed",
             )
         )
 
@@ -123,6 +123,7 @@ def list_calls(
                     CallLog.call_status == "failed",
                     CallLog.outcome == "tool_error",
                     CallLog.outcome == "abandoned",
+                    CallLog.outcome == "escalation_failed",
                 ),
                 0,
             ),

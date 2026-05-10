@@ -60,6 +60,7 @@ FULL_TOOL_NAMES = (
 INPUT_AUDIO_BUFFER_PACKET_THRESHOLD = 2
 SILENT_RESPONSE_WATCHDOG_SECONDS = 1.8
 MAX_SILENT_RESPONSE_RETRIES = 1
+CALLER_INACTIVITY_TIMEOUT_SECONDS = 30.0
 SUMMARY_TRIGGER_TURNS = 10
 SUMMARY_KEEP_LAST_TURNS = 4
 SUMMARY_MODEL = "gpt-4o-mini"
@@ -364,6 +365,7 @@ class RealtimeCallState:
     initial_greeting_in_progress: bool = True
     initial_greeting_grace_until: datetime | None = None
     caller_speech_detected: bool = False
+    last_caller_activity_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     interruption_events: list[dict[str, Any]] = field(default_factory=list)
     conversation_turns: list[dict[str, str]] = field(default_factory=list)
     conversation_item_ids: list[str] = field(default_factory=list)
@@ -854,7 +856,28 @@ def _successful_call_outcome(state: RealtimeCallState) -> str:
 
     assistant_text = state.last_assistant_transcript.lower()
     if "la metto in contatto con il ristorante" in assistant_text:
+        escalate_event = next(
+            (
+                event
+                for event in state.tool_events
+                if event.get("tool") == "escalate_to_human"
+            ),
+            None,
+        )
+        if escalate_event is not None:
+            result = escalate_event.get("result")
+            if isinstance(result, dict) and (
+                result.get("transferred") is True or result.get("success") is True
+            ):
+                return "escalated"
+            if isinstance(result, dict) and (
+                result.get("transferred") is False or result.get("success") is False
+            ):
+                return "escalation_failed"
         return "escalated"
+
+    if not state.tool_events and not state.transcription_events:
+        return "abandoned"
 
     failed_write_attempt = any(
         event.get("tool") in {"create_booking", "modify_booking", "cancel_booking"}
@@ -959,6 +982,9 @@ Tools
 - Chiama il tool subito dopo il preambolo.
 - Se il tool restituisce retry_write=false o should_escalate=true, non ripeterlo nello stesso turno.
 - Se un tool di scrittura riesce, comunica l'esito in una sola frase breve, saluta e chiudi la chiamata.
+- Nel saluto finale, quando possibile, usa il nome del cliente
+  (es. "Grazie Marco, a presto!" o "A presto Juan, buona serata!").
+  Se non conosci il nome, usa un saluto cortese generico.
 
 Conversation Flow
 - Se l'intento è già chiaro, vai subito nel flusso corretto. Non chiedere "Come posso aiutarla?" se non serve.
@@ -970,7 +996,10 @@ Conversation Flow
   - se c'è disponibilità, raccogli il nome
   - usa la richiesta del nome come recita dei dettagli (es. "Ho disponibilità per stasera alle 21. A che nome prenoto?")
   - appena il cliente fornisce un nome, esegui subito create_booking senza chiedere altre conferme o permessi
-- Se l'orario non è disponibile, proponi al massimo due alternative concrete e vicine.
+- Se l'orario non è disponibile, proponi SOLO orari presenti nel campo "alternatives"
+  restituito da check_availability. Se "alternatives" è vuoto, dì che per quell'orario
+  non c'è disponibilità e chiedi al cliente un altro giorno od orario.
+  Non inventare mai orari non restituiti dal tool.
 - Se il nome non è chiaro dopo due tentativi mirati, passa a un umano.
 - Modifica e cancellazione:
   - trova prima la prenotazione
@@ -997,7 +1026,7 @@ Conversation Flow
 
 Phone Rules
 - Il numero del chiamante viene fornito dal sistema nel contesto runtime.
-- Usa sempre il numero della chiamata come numero di contatto della prenotazione.
+- Il numero del chiamante è registrato automaticamente dal sistema. Non includerlo nei parametri del tool.
 - Se il cliente chiede di usare un numero diverso, non prometterlo e passa a un umano.
 - Se un nome proprio è straniero o non italiano, non tradurlo e non accorciarlo.
 - Ripetilo con la pronuncia più naturale possibile senza cambiare il comportamento del servizio.
@@ -1013,6 +1042,9 @@ Write Action Rules
 - Non dire mai al cliente quali parole esatte deve usare per rispondere.
 - Se una conferma per cancellazione/modifica resta totalmente incomprensibile dopo un tentativo mirato,
   passa a un umano.
+- Non chiamare modify_booking o cancel_booking se l'ultima risposta del cliente è incomprensibile,
+  fuori tema, un saluto, un riempitivo o in una lingua che non stai gestendo: chiedi ancora conferma
+  una sola volta, poi escala se non arriva.
 
 Duplicate Prevention
 - Non creare mai prenotazioni duplicate.
@@ -1032,7 +1064,9 @@ Safety & Escalation
 - Escala se due tentativi di tool sulla stessa richiesta falliscono.
 - Escala se la chiamata supera circa 90 secondi o 8 turni dell'assistente senza chiusura chiara.
 - Non escalare se puoi ancora risolvere con una sola domanda mirata.
-- Formula: "La metto in contatto con il ristorante."
+- Prima di pronunciare la formula "La metto in contatto con il ristorante",
+  chiama SEMPRE lo strumento escalate_to_human.
+  Non dirlo mai senza aver già eseguito il tool nel turno corrente.
 - Dopo un'azione completata con successo, chiudi subito con cortesia.
 
 Unclear Audio
@@ -1059,7 +1093,7 @@ def build_realtime_tools(
             "description": (
                 "Verifica la disponibilità per una richiesta di prenotazione. "
                 "Usalo SOLO quando il cliente ha esplicitamente detto data E numero di persone. "
-                "Conta adulti e bambini nel totale coperti. "
+                "Conta adulti e bambini nel totale del numero di persone. "
                 "Se il cliente chiede solo opzioni o disponibilita, puoi usare questo tool "
                 "ma NON trasformare la richiesta in prenotazione. "
                 "NON chiamare con dati inventati o assunti."
@@ -1090,7 +1124,7 @@ def build_realtime_tools(
                         ),
                     },
                 },
-                "required": ["date", "party_size", "time"],
+                "required": ["date", "time"],
                 "additionalProperties": False,
             },
         },
@@ -1126,7 +1160,8 @@ def build_realtime_tools(
                 "finché non decide esplicitamente di prenotare (es. fornendo un nome). "
                 "NON usare dati inventati o assunti. "
                 "Se il cliente cambia data, ora o numero persone dopo la verifica, "
-                "rifai check_availability prima di usare questo tool."
+                "rifai check_availability prima di usare questo tool. "
+                "Non includere il numero di telefono, viene catturato automaticamente."
             ),
             "parameters": {
                 "type": "object",
@@ -1202,6 +1237,14 @@ def build_realtime_tools(
                         "type": "string",
                         "description": "Nuove richieste speciali.",
                     },
+                    "confirmation_summary": {
+                        "type": "string",
+                        "description": (
+                            "Riepilogo in una frase di ciò che il cliente ha appena "
+                            "confermato in modo esplicito (es. 'riduce a 2 persone "
+                            "domani alle 12'). Scrivilo solo dopo un sì chiaro."
+                        ),
+                    },
                 },
                 "required": ["confirmation_code"],
                 "additionalProperties": False,
@@ -1220,6 +1263,14 @@ def build_realtime_tools(
                     "confirmation_code": {
                         "type": "string",
                         "description": "Codice della prenotazione da cancellare.",
+                    },
+                    "confirmation_summary": {
+                        "type": "string",
+                        "description": (
+                            "Riepilogo in una frase di ciò che il cliente ha appena "
+                            "confermato (es. 'cancella la prenotazione di domani alle 21'). "
+                            "Scrivilo solo dopo un sì chiaro."
+                        ),
                     },
                 },
                 "required": ["confirmation_code"],
@@ -1898,6 +1949,31 @@ def _modify_changes_from_arguments(arguments: dict[str, Any]) -> dict[str, Any]:
     return ModifyBookingChanges.model_validate(changes).model_dump(exclude_unset=True)
 
 
+def _resolve_party_size(arguments: dict[str, Any], context: dict[str, Any]) -> int:
+    """Normalize party-size arg regardless of which alias the model used."""
+    raw = (
+        arguments.get("party_size")
+        or arguments.get("covers")
+        or arguments.get("people")
+        or arguments.get("num_guests")
+        or arguments.get("guests")
+        or context.get("party_size")
+    )
+    try:
+        return int(raw) if raw else 0
+    except (TypeError, ValueError):
+        return 0
+
+
+def _scrub_pii(arguments: dict[str, Any]) -> dict[str, Any]:
+    """Remove phone number PII from logged tool arguments."""
+    cleaned = dict(arguments)
+    for k in ["phone_number", "contact_number", "customer_phone", "phone"]:
+        if k in cleaned:
+            cleaned[k] = "[redacted]"
+    return cleaned
+
+
 def _sync_dispatch_tool(
     db_factory: sessionmaker,
     *,
@@ -1924,11 +2000,14 @@ def _sync_dispatch_tool(
                     if arguments.get("time")
                     else None
                 )
-                party_size = int(
-                    arguments.get("party_size")
-                    or state.booking_context.get("party_size")
-                    or 0
-                )
+                party_size = _resolve_party_size(arguments, state.booking_context)
+                if party_size == 0:
+                    return {
+                        "success": False,
+                        "available": False,
+                        "reason": "Non ho il numero di persone. Chiedi al cliente quante persone saranno.",
+                        "missing_field": "party_size",
+                    }
                 result = check_availability(
                     db,
                     restaurant=restaurant,
@@ -1989,11 +2068,7 @@ def _sync_dispatch_tool(
                         restaurant_id=restaurant.id,
                         date=date.fromisoformat(arguments["date"]),
                         time=time.fromisoformat(arguments["time"]),
-                        party_size=int(
-                            arguments.get("party_size")
-                            or state.booking_context.get("party_size")
-                            or 0
-                        ),
+                        party_size=_resolve_party_size(arguments, state.booking_context),
                         customer_name=str(
                             arguments.get("customer_name")
                             or arguments.get("name")
@@ -2020,7 +2095,7 @@ def _sync_dispatch_tool(
                 state.current_booking_id = booking.id
                 state.booking_context.setdefault("date", arguments["date"])
                 state.booking_context.setdefault("requested_time", arguments["time"])
-                state.booking_context.setdefault("party_size", int(arguments["party_size"]))
+                state.booking_context.setdefault("party_size", _resolve_party_size(arguments, state.booking_context))
                 state.booking_context.setdefault(
                     "customer_name",
                     str(arguments.get("customer_name") or arguments.get("name") or "").strip(),
@@ -2031,11 +2106,22 @@ def _sync_dispatch_tool(
                     "booking_id": booking.id,
                     "assistant_instruction": (
                         "La prenotazione è confermata. Comunica l'esito in una sola frase breve, "
-                        "saluta e chiudi la chiamata. Non aggiungere altre domande o frasi."
+                        "saluta usando il nome del cliente (es. 'A presto Marco, buona serata!') "
+                        "e chiudi la chiamata. Non aggiungere altre domande o frasi."
                     ),
                 }
 
             if tool_name == "modify_booking":
+                summary = str(arguments.get("confirmation_summary") or "").strip()
+                if len(summary) < 12:
+                    return {
+                        "success": False,
+                        "reason": (
+                            "Serve un riepilogo esplicito di ciò che il cliente ha "
+                            "confermato. Chiedi una conferma chiara e riprova."
+                        ),
+                        "retry_write": True,
+                    }
                 changes = _modify_changes_from_arguments(arguments)
                 if not changes:
                     return {"success": False, "reason": "Nessuna modifica valida fornita."}
@@ -2065,6 +2151,16 @@ def _sync_dispatch_tool(
                 return {"success": True, "updated_booking": updated.id}
 
             if tool_name == "cancel_booking":
+                summary = str(arguments.get("confirmation_summary") or "").strip()
+                if len(summary) < 12:
+                    return {
+                        "success": False,
+                        "reason": (
+                            "Serve un riepilogo esplicito della cancellazione "
+                            "appena confermata dal cliente. Chiedi conferma e riprova."
+                        ),
+                        "retry_write": True,
+                    }
                 booking = db.scalar(
                     select(Booking).where(
                         Booking.restaurant_id == restaurant.id,
@@ -2545,6 +2641,7 @@ async def bridge_twilio_media_stream(
 
                     if event_type == "input_audio_buffer.speech_started":
                         state.caller_speech_detected = True
+                        state.last_caller_activity_at = datetime.now(UTC)
                         state.response_watchdog_generation += 1
                         state.interruption_events.append(
                             {
@@ -2555,6 +2652,22 @@ async def bridge_twilio_media_stream(
                                 "initial_greeting_in_progress": state.initial_greeting_in_progress,
                             }
                         )
+                        if (
+                            state.initial_greeting_in_progress
+                            and state.last_audio_item_id is None
+                        ):
+                            # Caller spoke into the cold-start silence before the
+                            # greeting produced any audio. Do NOT cancel or
+                            # truncate — let the greeting come through. The
+                            # caller's utterance stays buffered and becomes the
+                            # first user turn after the greeting completes.
+                            state.interruption_events.append(
+                                {
+                                    "event": "greeting_protected_from_cancel",
+                                    "timestamp": datetime.now(UTC).isoformat(),
+                                }
+                            )
+                            continue
                         if _should_ignore_post_write_user_turn(state):
                             continue
                         if state.response_in_progress:
@@ -2703,6 +2816,7 @@ async def bridge_twilio_media_stream(
                                 )
                                 continue
 
+                            tool_started_at = datetime.now(UTC)
                             result = await dispatch_tool(
                                 db_factory,
                                 restaurant=restaurant,
@@ -2710,11 +2824,17 @@ async def bridge_twilio_media_stream(
                                 tool_name=str(item.get("name")),
                                 arguments=arguments,
                             )
+                            tool_completed_at = datetime.now(UTC)
                             state.tool_events.append(
                                 {
                                     "tool": item.get("name"),
-                                    "arguments": arguments,
+                                    "arguments": _scrub_pii(arguments),
                                     "result": result,
+                                    "started_at": tool_started_at.isoformat(),
+                                    "completed_at": tool_completed_at.isoformat(),
+                                    "latency_ms": int(
+                                        (tool_completed_at - tool_started_at).total_seconds() * 1000
+                                    ),
                                 }
                             )
                             _record_conversation_turn(
@@ -2768,7 +2888,7 @@ async def bridge_twilio_media_stream(
                             # Most audio has already been played by the time response.done
                             # arrives, so a short buffer is enough to avoid clipping the
                             # goodbye while still ending the call promptly.
-                            hangup_delay_ms = int((state.last_audio_bytes_sent / 8000) * 1000) + 1000
+                            hangup_delay_ms = int((state.last_audio_bytes_sent / 8000) * 1000) + 3000
                         state.response_in_progress = False
                         state.assistant_is_speaking = False
                         _finish_initial_greeting(state)
@@ -2873,10 +2993,28 @@ async def bridge_twilio_media_stream(
                             raise RuntimeError(error_msg)
                         continue
 
+            async def caller_inactivity_watchdog() -> None:
+                while True:
+                    await asyncio.sleep(5)
+                    if state.end_call_after_response or state.response_in_progress or state.assistant_is_speaking:
+                        continue
+                    idle_seconds = (datetime.now(UTC) - state.last_caller_activity_at).total_seconds()
+                    if idle_seconds >= CALLER_INACTIVITY_TIMEOUT_SECONDS and state.caller_speech_detected:
+                        state.outcome = "abandoned"
+                        if state.twilio_call_sid and not state.twilio_call_sid.startswith("studio-"):
+                            with suppress(Exception):
+                                await asyncio.to_thread(
+                                    _sync_end_twilio_call,
+                                    restaurant=restaurant,
+                                    call_sid=state.twilio_call_sid,
+                                )
+                        return
+
             send_task = asyncio.create_task(twilio_to_openai())
             receive_task = asyncio.create_task(openai_to_twilio())
+            inactivity_task = asyncio.create_task(caller_inactivity_watchdog())
             done, pending = await asyncio.wait(
-                {send_task, receive_task},
+                {send_task, receive_task, inactivity_task},
                 return_when=asyncio.FIRST_COMPLETED,
             )
             for task in pending:
@@ -3063,6 +3201,7 @@ async def run_text_simulation(
                         except json.JSONDecodeError:
                             continue
 
+                        tool_started_at = datetime.now(UTC)
                         result = await dispatch_tool(
                             db_factory,
                             restaurant=restaurant,
@@ -3070,11 +3209,17 @@ async def run_text_simulation(
                             tool_name=str(item.get("name")),
                             arguments=arguments,
                         )
+                        tool_completed_at = datetime.now(UTC)
                         state.tool_events.append(
                             {
                                 "tool": item.get("name"),
-                                "arguments": arguments,
+                                "arguments": _scrub_pii(arguments),
                                 "result": result,
+                                "started_at": tool_started_at.isoformat(),
+                                "completed_at": tool_completed_at.isoformat(),
+                                "latency_ms": int(
+                                    (tool_completed_at - tool_started_at).total_seconds() * 1000
+                                ),
                             }
                         )
                         await realtime_ws.send(

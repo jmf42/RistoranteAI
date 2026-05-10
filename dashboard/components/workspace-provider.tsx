@@ -1,5 +1,6 @@
 "use client";
 
+import { usePathname } from "next/navigation";
 import {
   createContext,
   ReactNode,
@@ -34,6 +35,7 @@ const WorkspaceContext = createContext<WorkspaceContextValue | null>(null);
 const ACTIVE_RESTAURANT_KEY = "ristorante-active-restaurant";
 
 export function WorkspaceProvider({ children }: { children: ReactNode }) {
+  const pathname = usePathname();
   const [user, setUser] = useState<SessionUser | null>(null);
   const [loading, setLoading] = useState(true);
   const [restaurant, setRestaurant] = useState<Restaurant | null>(null);
@@ -42,6 +44,16 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null);
 
   const loadWorkspace = useCallback(async () => {
+    const isPublicReservationRoute = pathname?.startsWith("/reserve");
+    if (isPublicReservationRoute) {
+      setLoading(false);
+      setUser(null);
+      setRestaurant(null);
+      setRestaurants([]);
+      setActiveRestaurantIdState(null);
+      setError(null);
+      return;
+    }
     setLoading(true);
     try {
       const session = await apiFetch<SessionResponse>("/api/auth/me");
@@ -83,7 +95,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [pathname]);
 
   useEffect(() => {
     void loadWorkspace();

@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date as DateValue
 from datetime import time as TimeValue
 
-from pydantic import Field
+from pydantic import EmailStr, Field
 
 from app.schemas.common import AppBaseModel, BookingSource, BookingStatus
 
@@ -15,9 +15,13 @@ class BookingCreate(AppBaseModel):
     party_size: int = Field(ge=1, le=30)
     customer_name: str = Field(min_length=2, max_length=120)
     customer_phone: str = Field(min_length=6, max_length=30)
+    customer_email: EmailStr | None = None
     special_requests: str | None = Field(default=None, max_length=2000)
     source: BookingSource = BookingSource.dashboard
     status: BookingStatus = BookingStatus.confirmed
+    channel_metadata: dict[str, object] = Field(default_factory=dict)
+    guest_access_version: int = 1
+    idempotency_key: str | None = Field(default=None, max_length=120)
 
 
 class BookingUpdate(AppBaseModel):
@@ -26,6 +30,7 @@ class BookingUpdate(AppBaseModel):
     party_size: int | None = Field(default=None, ge=1, le=30)
     customer_name: str | None = Field(default=None, min_length=2, max_length=120)
     customer_phone: str | None = Field(default=None, min_length=6, max_length=30)
+    customer_email: EmailStr | None = None
     special_requests: str | None = Field(default=None, max_length=2000)
     status: BookingStatus | None = None
 
@@ -40,10 +45,13 @@ class BookingRead(AppBaseModel):
     party_size: int
     customer_name: str
     customer_phone: str
+    customer_email: EmailStr | None = None
     special_requests: str | None = Field(default=None, max_length=2000)
     status: BookingStatus
     source: BookingSource
     customer_id: str | None = None
+    channel_metadata: dict[str, object] = Field(default_factory=dict)
+    guest_access_version: int
     created_at: str
     updated_at: str
 

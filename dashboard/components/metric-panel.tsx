@@ -5,10 +5,10 @@ import { StatusBadge } from "@/components/status-badge";
 type MetricTone = "terracotta" | "olive" | "gold" | "ink";
 
 const toneClasses: Record<MetricTone, string> = {
-  terracotta: "border-terracotta/15 bg-gradient-to-br from-terracotta/12 via-white to-white",
-  olive: "border-olive/15 bg-gradient-to-br from-olive/12 via-white to-white",
-  gold: "border-gold/15 bg-gradient-to-br from-gold/14 via-white to-white",
-  ink: "border-ink/10 bg-ink text-ivory",
+  terracotta: "ui-soft-surface bg-[linear-gradient(180deg,rgba(255,251,248,0.96),rgba(248,239,234,0.92))]",
+  olive: "ui-soft-surface bg-[linear-gradient(180deg,rgba(255,252,248,0.96),rgba(239,243,237,0.92))]",
+  gold: "ui-soft-surface bg-[linear-gradient(180deg,rgba(255,252,248,0.96),rgba(246,239,222,0.9))]",
+  ink: "ui-night-surface text-ivory",
 };
 
 export function MetricPanel({
@@ -30,15 +30,15 @@ export function MetricPanel({
 }) {
   const dark = tone === "ink";
   return (
-    <article className={`min-w-0 rounded-[1.6rem] border p-4 shadow-card sm:p-5 ${toneClasses[tone]}`}>
+    <article className={`min-w-0 rounded-[1.6rem] p-4 sm:p-5 ${toneClasses[tone]}`}>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           {eyebrow ? (
-            <p className={`text-[11px] font-semibold uppercase tracking-[0.22em] ${dark ? "text-gold/75" : "text-terracotta/70"}`}>
+            <p className={`ui-kicker text-[11px] font-semibold uppercase ${dark ? "text-gold/75" : "text-terracotta/70"}`}>
               {eyebrow}
             </p>
           ) : null}
-          <p className={`mt-2 text-sm font-semibold uppercase tracking-[0.18em] ${dark ? "text-ivory/60" : "text-ink/55"}`}>
+          <p className={`mt-2 text-sm font-semibold uppercase tracking-[0.14em] ${dark ? "text-ivory/60" : "text-ink/55"}`}>
             {label}
           </p>
           {badge ? (
@@ -49,7 +49,7 @@ export function MetricPanel({
         </div>
         <div className="flex shrink-0 items-center gap-2">
           {icon ? (
-            <div className={`inline-flex h-10 w-10 items-center justify-center rounded-full ${dark ? "bg-white/10 text-gold/80" : "bg-white/85 text-ink/65"}`}>
+            <div className={`inline-flex h-10 w-10 items-center justify-center rounded-full ${dark ? "bg-white/10 text-gold/80" : "bg-white text-ink/58"}`}>
               {icon}
             </div>
           ) : null}

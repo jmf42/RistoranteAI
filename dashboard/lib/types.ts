@@ -5,13 +5,14 @@ export type BookingStatus =
   | "cancelled"
   | "no_show"
   | "completed";
-export type BookingSource = "ai_phone" | "dashboard" | "walk_in";
+export type BookingSource = "ai_phone" | "dashboard" | "walk_in" | "web";
 export type CallOutcome =
   | "booking_created"
   | "booking_modified"
   | "booking_cancelled"
   | "info_provided"
   | "escalated"
+  | "escalation_failed"
   | "abandoned"
   | "tool_error";
 export type CallStatus = "successful" | "failed" | "unknown";
@@ -78,12 +79,64 @@ export interface Booking {
   party_size: number;
   customer_name: string;
   customer_phone: string;
+   customer_email: string | null;
   special_requests: string | null;
   status: BookingStatus;
   source: BookingSource;
   customer_id: string | null;
+   channel_metadata: Record<string, unknown>;
+   guest_access_version: number;
   created_at: string;
   updated_at: string;
+}
+
+export interface PublicOnlineBookingSettings {
+  enabled: boolean;
+  default_locale: string;
+  modify_cutoff_hours: number;
+  cancel_cutoff_hours: number;
+  require_email: boolean;
+  party_size_min: number;
+  party_size_max: number;
+  confirmation_message: string;
+  public_page_enabled: boolean;
+  widget_enabled: boolean;
+}
+
+export interface PublicReservationConfig {
+  restaurant: {
+    name: string;
+    slug: string;
+    timezone: string;
+    address: string;
+  };
+  online_booking: PublicOnlineBookingSettings;
+  turni: Array<{ name: string; start: string; end: string; max_covers: number }>;
+}
+
+export interface PublicAvailabilityResult {
+  open: boolean;
+  available: boolean;
+  reason: string | null;
+  slot: { time: string; turno: string; remaining?: number | null } | null;
+  alternatives: Array<{ time: string; turno: string; remaining?: number | null }>;
+}
+
+export interface PublicAvailabilityResponse {
+  restaurant_slug: string;
+  result: PublicAvailabilityResult;
+}
+
+export interface PublicBookingResponse {
+  booking: Booking;
+  manage_url: string;
+  notification_status: string;
+}
+
+export interface PublicManagedBookingResponse {
+  booking: Booking;
+  can_modify: boolean;
+  can_cancel: boolean;
 }
 
 export interface BookingEvent {

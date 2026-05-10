@@ -1,6 +1,6 @@
 # Operations
 
-Last updated: `2026-04-14`
+Last updated: `2026-05-10`
 
 This is the operational runbook for the OpenAI Realtime stack.
 
@@ -22,6 +22,7 @@ SEED_DEMO=false
 SESSION_COOKIE_SECURE=true
 ALLOWED_ORIGINS=https://<dashboard-domain>
 PUBLIC_BASE_URL=https://<backend-domain>
+PUBLIC_WEB_BASE_URL=https://<dashboard-domain>
 ```
 
 Required secrets:
@@ -41,6 +42,13 @@ Recommended optional config:
 ```env
 OPENAI_REALTIME_MODEL=gpt-realtime-1.5
 OPENAI_REALTIME_VOICE=cedar
+NOTIFICATION_FROM_EMAIL=reservations@example.com
+SMTP_HOST=smtp.example.com
+SMTP_PORT=587
+SMTP_USERNAME=...
+SMTP_PASSWORD=...
+SMTP_USE_TLS=true
+SMTP_USE_SSL=false
 ```
 
 Telephony note:
@@ -147,6 +155,8 @@ Before switching real traffic:
 10. A real text simulation works from `/studio`.
 11. A scenario-suite run passes for the target restaurant after any major prompt/config change.
 12. A real Twilio inbound test call completes through the OpenAI bridge.
+13. Public reservation create/manage/cancel flows work for the target restaurant.
+14. Email notifications are either configured and sending, or deliberately left disabled for the controlled test.
 
 ## Legacy Verification Commands (Direct)
 

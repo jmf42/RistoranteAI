@@ -8,7 +8,7 @@ PROJECT = "ristorante-ai-20260324-9471"
 REGION = "europe-west1"
 SERVICE = "ristorante-ai-dashboard"
 # The backend URL the dashboard talks to
-BACKEND_URL = "https://ristorante-ai-api-534989834839.europe-west1.run.app"
+BACKEND_URL = "https://ristorante-ai-api-jc7mvuujwq-ew.a.run.app"
 
 print(f"🚀 Preparing dashboard deployment for project {PROJECT}...")
 

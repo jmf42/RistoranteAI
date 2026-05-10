@@ -36,7 +36,8 @@ env_dict.update({
     "SEED_DEMO": "false",
     "SESSION_COOKIE_SECURE": "true",
     "ALLOWED_ORIGINS": "https://ristorante-ai-dashboard-jc7mvuujwq-ew.a.run.app",
-    "PUBLIC_BASE_URL": "https://ristorante-ai-api-jc7mvuujwq-ew.a.run.app"
+    "PUBLIC_BASE_URL": "https://ristorante-ai-api-jc7mvuujwq-ew.a.run.app",
+    "PUBLIC_WEB_BASE_URL": "https://ristorante-ai-dashboard-jc7mvuujwq-ew.a.run.app"
 })
 
 # Write to a safe yaml file manually to avoid PyYAML dependency

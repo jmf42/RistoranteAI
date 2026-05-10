@@ -26,6 +26,7 @@ class BookingSource(StrEnum):
     ai_phone = "ai_phone"
     dashboard = "dashboard"
     walk_in = "walk_in"
+    web = "web"
 
 
 class VoiceProvider(StrEnum):
@@ -39,6 +40,7 @@ class CallOutcome(StrEnum):
     booking_cancelled = "booking_cancelled"
     info_provided = "info_provided"
     escalated = "escalated"
+    escalation_failed = "escalation_failed"
     abandoned = "abandoned"
     tool_error = "tool_error"
 

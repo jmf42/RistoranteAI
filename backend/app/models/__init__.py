@@ -1,8 +1,10 @@
 from app.models.entities import (
     Booking,
     BookingEvent,
+    BookingGuestToken,
     CallLog,
     Customer,
+    NotificationOutbox,
     RawWebhookEvent,
     Restaurant,
     User,
@@ -12,8 +14,10 @@ from app.models.entities import (
 __all__ = [
     "Booking",
     "BookingEvent",
+    "BookingGuestToken",
     "CallLog",
     "Customer",
+    "NotificationOutbox",
     "RawWebhookEvent",
     "Restaurant",
     "User",

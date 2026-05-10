@@ -49,6 +49,14 @@ class Settings(BaseSettings):
     public_base_url: str | None = Field(default=None, validation_alias="PUBLIC_BASE_URL")
     twilio_account_sid: str | None = Field(default=None, validation_alias="TWILIO_ACCOUNT_SID")
     twilio_auth_token: str | None = Field(default=None, validation_alias="TWILIO_AUTH_TOKEN")
+    public_web_base_url: str | None = Field(default=None, validation_alias="PUBLIC_WEB_BASE_URL")
+    notification_from_email: str | None = Field(default=None, validation_alias="NOTIFICATION_FROM_EMAIL")
+    smtp_host: str | None = Field(default=None, validation_alias="SMTP_HOST")
+    smtp_port: int = Field(default=587, validation_alias="SMTP_PORT")
+    smtp_username: str | None = Field(default=None, validation_alias="SMTP_USERNAME")
+    smtp_password: str | None = Field(default=None, validation_alias="SMTP_PASSWORD")
+    smtp_use_tls: bool = Field(default=True, validation_alias="SMTP_USE_TLS")
+    smtp_use_ssl: bool = Field(default=False, validation_alias="SMTP_USE_SSL")
 
     auto_create_schema: bool = True
     seed_demo: bool | None = None
@@ -57,6 +65,7 @@ class Settings(BaseSettings):
     rate_limit_requests_per_window: int = 240
     rate_limit_auth_requests_per_window: int = 20
     rate_limit_sensitive_requests_per_window: int = 60
+    rate_limit_public_requests_per_window: int = 120
     db_pool_size: int = 10
     db_max_overflow: int = 20
     db_pool_timeout_seconds: int = 5

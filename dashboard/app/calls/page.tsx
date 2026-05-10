@@ -34,6 +34,7 @@ const callOutcomes = [
   { value: "booking_cancelled", label: "Cancellate" },
   { value: "info_provided", label: "Info" },
   { value: "escalated", label: "Passate al ristorante" },
+  { value: "escalation_failed", label: "Trasferimenti falliti" },
   { value: "abandoned", label: "Interrotte" },
   { value: "tool_error", label: "Errori" },
 ];

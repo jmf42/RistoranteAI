@@ -174,7 +174,11 @@ def trends(db: Session, *, restaurant_id: str, days: int = 14) -> TrendBundle:
     for row in call_rows:
         local_dt = row.started_at
         heatmap_counter[(local_dt.weekday(), local_dt.hour)] += 1
-        if row.outcome in {CallOutcome.escalated, CallOutcome.abandoned}:
+        if row.outcome in {
+            CallOutcome.escalated,
+            CallOutcome.escalation_failed,
+            CallOutcome.abandoned,
+        }:
             escalation_counter.update([row.outcome])
 
     heatmap = [

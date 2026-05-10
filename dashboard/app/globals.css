@@ -4,6 +4,16 @@
 
 :root {
   color-scheme: light;
+  --ui-ink: #1c1612;
+  --ui-night: #15100d;
+  --ui-night-2: #1f1813;
+  --ui-ivory: #f5efe3;
+  --ui-ivory-soft: #ece1d1;
+  --ui-stone: #d8cec0;
+  --ui-terracotta: #b24b34;
+  --ui-gold: #c59a46;
+  --ui-rule: rgba(28, 22, 18, 0.1);
+  --ui-shadow: 0 28px 70px -34px rgba(29, 22, 18, 0.32);
 }
 
 * {
@@ -15,27 +25,22 @@ html {
 }
 
 body {
+  position: relative;
   margin: 0;
   min-height: 100vh;
   font-family: var(--font-body), sans-serif;
   background:
-    radial-gradient(circle at top left, rgba(197, 154, 70, 0.18), transparent 0 28%),
-    radial-gradient(circle at 85% 0%, rgba(178, 75, 52, 0.16), transparent 0 30%),
-    linear-gradient(140deg, #f5efe3, #ece1d1 42%, #f5efe3 100%);
-  color: #1c1612;
+    radial-gradient(circle at 12% 10%, rgba(197, 154, 70, 0.1), transparent 0 22%),
+    linear-gradient(180deg, #f8f3ea 0%, #f4ece0 100%);
+  color: var(--ui-ink);
 }
 
 body::before {
-  content: "";
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  opacity: 0.24;
-  background-image:
-    linear-gradient(rgba(28, 22, 18, 0.03) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(28, 22, 18, 0.03) 1px, transparent 1px);
-  background-size: 28px 28px;
-  mask-image: radial-gradient(circle at center, black, transparent 78%);
+  content: none;
+}
+
+body::after {
+  content: none;
 }
 
 a {
@@ -48,8 +53,11 @@ a {
 }
 
 .ui-kicker {
+  font-family: var(--font-body), sans-serif;
   max-width: 100%;
   overflow-wrap: anywhere;
+  font-weight: 700;
+  letter-spacing: 0.18em;
   text-wrap: balance;
 }
 
@@ -93,4 +101,81 @@ select,
 textarea,
 button {
   font: inherit;
+}
+
+#__next,
+main {
+  position: relative;
+  z-index: 1;
+}
+
+.ui-shell-surface {
+  position: relative;
+  border: 1px solid rgba(216, 206, 192, 0.74);
+  background: rgba(255, 252, 247, 0.92);
+  box-shadow: 0 20px 45px -36px rgba(29, 22, 18, 0.2);
+}
+
+.ui-shell-surface::before {
+  content: "";
+  position: absolute;
+  inset: 1px;
+  border-radius: inherit;
+  border: 1px solid rgba(255, 255, 255, 0.36);
+  pointer-events: none;
+}
+
+.ui-soft-surface {
+  position: relative;
+  border: 1px solid rgba(216, 206, 192, 0.72);
+  background: rgba(255, 252, 247, 0.9);
+  box-shadow: 0 14px 34px -30px rgba(29, 22, 18, 0.16);
+}
+
+.ui-soft-surface::before {
+  content: "";
+  position: absolute;
+  inset: 1px;
+  border-radius: inherit;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  pointer-events: none;
+}
+
+.ui-night-surface {
+  position: relative;
+  border: 1px solid rgba(245, 239, 227, 0.08);
+  background:
+    linear-gradient(180deg, rgba(31, 24, 19, 0.98), rgba(22, 17, 14, 0.98));
+  box-shadow: 0 24px 60px -36px rgba(16, 12, 10, 0.55);
+}
+
+.ui-brand-mark {
+  position: relative;
+  display: inline-flex;
+  height: 4.5rem;
+  width: 4.5rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  border: 1px solid rgba(197, 154, 70, 0.2);
+  background: radial-gradient(circle, rgba(178, 75, 52, 0.92) 0 30%, rgba(178, 75, 52, 0.16) 31%, transparent 32%);
+  color: var(--ui-ivory);
+  flex-shrink: 0;
+}
+
+.ui-brand-mark::before,
+.ui-brand-mark::after {
+  content: "";
+  position: absolute;
+  border-radius: inherit;
+  border: 1px solid rgba(178, 75, 52, 0.38);
+}
+
+.ui-brand-mark::before {
+  inset: 0.5rem;
+}
+
+.ui-brand-mark::after {
+  inset: 1.1rem;
+  border-color: rgba(178, 75, 52, 0.5);
 }

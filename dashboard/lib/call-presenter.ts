@@ -6,6 +6,7 @@ const outcomeLabels: Record<CallOutcome, string> = {
   booking_cancelled: "Prenotazione cancellata",
   info_provided: "Informazioni gestite",
   escalated: "Passata al ristorante",
+  escalation_failed: "Trasferimento non riuscito",
   abandoned: "Chiamata interrotta",
   tool_error: "Errore tecnico",
 };
@@ -87,6 +88,7 @@ export function getCallPresentation(call: Pick<CallLog, "outcome" | "call_status
     call.call_status === "failed" ||
     call.outcome === "tool_error" ||
     call.outcome === "abandoned" ||
+    call.outcome === "escalation_failed" ||
     detectTechFailure(summary);
 
   if (call.outcome === "booking_created") {
@@ -173,7 +175,12 @@ export function isLowSignalCall(call: Pick<CallLog, "outcome" | "call_status" | 
   if (call.outcome === "booking_created" || call.outcome === "booking_modified" || call.outcome === "booking_cancelled") {
     return false;
   }
-  if (call.call_status === "failed" || call.outcome === "tool_error" || call.outcome === "abandoned") {
+  if (
+    call.call_status === "failed" ||
+    call.outcome === "tool_error" ||
+    call.outcome === "abandoned" ||
+    call.outcome === "escalation_failed"
+  ) {
     return false;
   }
   if (detectConfirmCall(summary)) {
@@ -194,6 +201,7 @@ export function isFollowUpCall(call: Pick<CallLog, "outcome" | "call_status" | "
     call.call_status === "failed" ||
     call.outcome === "tool_error" ||
     call.outcome === "abandoned" ||
+    call.outcome === "escalation_failed" ||
     detectTechFailure(summary)
   );
 }
@@ -203,6 +211,7 @@ function activityOutcomeFromTitle(title: string): CallOutcome {
   if (lowered.includes("booking created")) return "booking_created";
   if (lowered.includes("booking modified")) return "booking_modified";
   if (lowered.includes("booking cancelled")) return "booking_cancelled";
+  if (lowered.includes("escalation failed") || lowered.includes("escalation_failed")) return "escalation_failed";
   if (lowered.includes("escalated")) return "escalated";
   if (lowered.includes("abandoned")) return "abandoned";
   if (lowered.includes("tool error")) return "tool_error";

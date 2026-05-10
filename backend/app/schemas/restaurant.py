@@ -29,6 +29,7 @@ class RestaurantBase(AppBaseModel):
     closure_dates: list[str] = Field(default_factory=list)
     turni: list[dict[str, Any]] = Field(default_factory=list)
     booking_rules: dict[str, Any] = Field(default_factory=dict)
+    online_booking_settings: dict[str, Any] = Field(default_factory=dict)
     custom_greeting: str | None = None
     agent_style_notes: str | None = None
     escalation_phone: str | None = None
@@ -135,6 +136,7 @@ class RestaurantUpdate(AppBaseModel):
     closure_dates: list[str] | None = None
     turni: list[dict[str, Any]] | None = None
     booking_rules: dict[str, Any] | None = None
+    online_booking_settings: dict[str, Any] | None = None
     custom_greeting: str | None = None
     agent_style_notes: str | None = None
     escalation_phone: str | None = None
@@ -167,6 +169,13 @@ class RestaurantUpdate(AppBaseModel):
         if value is None or not isinstance(value, dict):
             return value
         return RestaurantBase.validate_booking_rules(value)
+
+    @field_validator("online_booking_settings", mode="before")
+    @classmethod
+    def validate_online_booking_settings(cls, value: dict[str, Any] | None) -> dict[str, Any] | None:
+        if value is None or not isinstance(value, dict):
+            return value
+        return value
 
     @field_validator("closure_dates", mode="before")
     @classmethod

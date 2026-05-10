@@ -62,6 +62,25 @@ export default function HomePage() {
     [agenda?.days],
   );
 
+  const quickServices = useMemo(() => {
+    if (!agenda) {
+      return [];
+    }
+
+    return agenda.days
+      .flatMap((day) =>
+        day.turni
+          .filter((turno) => turno.booking_count > 0)
+          .map((turno) => ({
+            date: day.date,
+            weekdayLabel: day.weekday_label,
+            isToday: day.is_today,
+            turno,
+          })),
+      )
+      .slice(0, 4);
+  }, [agenda]);
+
   return (
     <DashboardShell
       title="Agenda"
@@ -79,39 +98,97 @@ export default function HomePage() {
         </div>
       ) : agenda ? (
         <div className="space-y-5">
-          {/* KPI strip */}
-          <div className="grid gap-3 sm:grid-cols-3">
-            <KPI
-              label="Coperti oggi"
-              value={String(agenda.summary.today_booked_covers)}
-              icon={<CalendarDays size={16} />}
-            />
-            <KPI
-              label="Chiamate oggi"
-              value={String(agenda.summary.today_calls)}
-              icon={<PhoneCall size={16} />}
-            />
-            <KPI
-              label="Da seguire"
-              value={String(agenda.summary.today_unresolved_calls)}
-              icon={<TriangleAlert size={16} />}
-              tone={agenda.summary.today_unresolved_calls > 0 ? "alert" : alertDays > 0 ? "warn" : "calm"}
-              sub={
-                agenda.summary.today_unresolved_calls > 0
-                  ? "Chiamate con problemi"
-                  : alertDays > 0
-                  ? `${alertDays} servizi da controllare`
-                  : "Tutto ok"
-              }
-            />
-          </div>
+          <section className="grid gap-3 xl:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)]">
+            <article className="ui-soft-surface rounded-[2rem] p-5 sm:p-6">
+              <p className="ui-kicker text-xs font-semibold uppercase text-terracotta/72 sm:text-[11px]">
+                Apri un servizio
+              </p>
+              <h3 className="mt-3 font-display text-3xl text-ink sm:text-4xl">
+                Vai subito alla lista ospiti.
+              </h3>
+              <p className="mt-2 max-w-2xl text-sm leading-7 text-ink/62">
+                Tocca un turno con prenotazioni per vedere subito nome, telefono e coperti del servizio.
+              </p>
 
-          {/* Week */}
+              <div className="ui-snap-row -mx-1 mt-5 flex gap-3 overflow-x-auto px-1 pb-1 sm:mx-0 sm:grid sm:grid-cols-2 sm:overflow-visible sm:px-0">
+                {quickServices.length ? (
+                  quickServices.map((service) => (
+                    <Link
+                      key={`${service.date}-${service.turno.turno}`}
+                      href={`/bookings?date=${service.date}&turno=${encodeURIComponent(service.turno.turno)}`}
+                      className="min-w-[250px] rounded-[1.5rem] border border-stone/70 bg-white/82 p-4 transition hover:-translate-y-0.5 hover:border-gold hover:bg-white sm:min-w-0"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="ui-kicker text-[11px] font-semibold uppercase text-terracotta/62">
+                            {service.isToday ? "Oggi" : service.weekdayLabel}
+                          </p>
+                          <p className="mt-2 font-display text-2xl text-ink">
+                            {formatTurnoName(service.turno.turno)}
+                          </p>
+                          <p className="mt-1 text-sm text-ink/55">
+                            {service.turno.start} - {service.turno.end}
+                          </p>
+                        </div>
+                        <span className={`text-[11px] font-semibold ${fullnessColor[service.turno.fullness]}`}>
+                          {fullnessLabel[service.turno.fullness]}
+                        </span>
+                      </div>
+                      <div className="mt-4 flex items-center gap-2 text-sm text-ink/65">
+                        <span className="font-semibold text-ink">{service.turno.booking_count}</span>
+                        <span>{service.turno.booking_count === 1 ? "prenotazione" : "prenotazioni"}</span>
+                        <span className="text-ink/30">•</span>
+                        <span className="font-semibold text-ink">{service.turno.booked_covers}</span>
+                        <span>{service.turno.booked_covers === 1 ? "coperto" : "coperti"}</span>
+                      </div>
+                    </Link>
+                  ))
+                ) : (
+                  <div className="rounded-[1.5rem] border border-dashed border-stone/80 bg-white/60 p-5 text-sm text-ink/58 sm:col-span-2">
+                    Nessun turno con prenotazioni nei prossimi giorni.
+                  </div>
+                )}
+              </div>
+            </article>
+
+            <div className="ui-snap-row -mx-1 flex gap-3 overflow-x-auto px-1 pb-1 sm:mx-0 sm:grid sm:grid-cols-3 sm:overflow-visible sm:px-0 xl:grid-cols-1">
+              <KPI
+                label="Coperti oggi"
+                value={String(agenda.summary.today_booked_covers)}
+                icon={<CalendarDays size={16} />}
+              />
+              <KPI
+                label="Chiamate oggi"
+                value={String(agenda.summary.today_calls)}
+                icon={<PhoneCall size={16} />}
+              />
+              <KPI
+                label="Da seguire"
+                value={String(agenda.summary.today_unresolved_calls)}
+                icon={<TriangleAlert size={16} />}
+                tone={agenda.summary.today_unresolved_calls > 0 ? "alert" : alertDays > 0 ? "warn" : "calm"}
+                sub={
+                  agenda.summary.today_unresolved_calls > 0
+                    ? "Chiamate con problemi"
+                    : alertDays > 0
+                    ? `${alertDays} giorni da rivedere`
+                    : "Tutto in ordine"
+                }
+              />
+            </div>
+          </section>
+
           <div className="space-y-2">
             {agenda.days.map((day) => <DayRow key={day.date} day={day} />)}
           </div>
 
-          <div className="pt-1 text-center">
+          <div className="flex flex-wrap justify-center gap-2 pt-1">
+            <Link
+              href="/bookings"
+              className="inline-block rounded-full border border-stone bg-white/80 px-5 py-2.5 text-xs font-semibold uppercase tracking-[0.18em] text-ink/60 transition hover:border-gold hover:text-ink"
+            >
+              Vai alle prenotazioni
+            </Link>
             <Link
               href="/calls"
               className="inline-block rounded-full border border-stone bg-white/80 px-5 py-2.5 text-xs font-semibold uppercase tracking-[0.18em] text-ink/60 transition hover:border-gold hover:text-ink"
@@ -139,18 +216,18 @@ function KPI({
   tone?: "default" | "calm" | "warn" | "alert";
 }) {
   const bg =
-    tone === "alert" ? "border-terracotta/25 bg-terracotta/8" :
-    tone === "warn"  ? "border-gold/30 bg-gold/8" :
-    tone === "calm"  ? "border-olive/25 bg-olive/8" :
-    "border-stone/80 bg-white/80";
+    tone === "alert" ? "from-terracotta/14 via-white/88 to-[#f4e4df]" :
+    tone === "warn" ? "from-gold/16 via-white/88 to-[#f4eddd]" :
+    tone === "calm" ? "from-olive/12 via-white/88 to-[#edf0eb]" :
+    "from-white/88 via-white/78 to-[#f4ecdf]";
 
   return (
-    <article className={`flex items-center gap-4 rounded-[1.5rem] border p-4 shadow-card ${bg}`}>
-      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-ivory text-ink/50">
+    <article className={`ui-soft-surface flex min-w-[210px] items-center gap-4 rounded-[1.5rem] bg-gradient-to-br p-4 sm:min-w-0 ${bg}`}>
+      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/60 bg-white/72 text-ink/48 shadow-[0_12px_28px_-20px_rgba(28,22,18,0.45)]">
         {icon}
       </div>
       <div className="min-w-0">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-ink/42">{label}</p>
+        <p className="ui-kicker text-[11px] font-semibold uppercase text-ink/42">{label}</p>
         <p className="mt-0.5 font-display text-3xl text-ink">{value}</p>
         {sub ? <p className="mt-0.5 truncate text-xs text-ink/48">{sub}</p> : null}
       </div>
@@ -163,28 +240,31 @@ function DayRow({ day }: { day: OwnerAgendaDay }) {
 
   return (
     <article
-      className={`overflow-hidden rounded-[1.5rem] border transition-shadow ${
+      className={`ui-soft-surface overflow-hidden rounded-[1.5rem] transition-shadow ${
         day.is_today
-          ? "border-gold/45 bg-[linear-gradient(150deg,rgba(255,253,248,0.98),rgba(250,240,218,0.95))] shadow-card"
+          ? "bg-[linear-gradient(150deg,rgba(255,253,248,0.98),rgba(250,240,218,0.95))] shadow-card"
           : isAlert
-          ? "border-terracotta/30 bg-white/85"
-          : "border-stone/70 bg-white/82"
+          ? "bg-[linear-gradient(150deg,rgba(255,250,247,0.96),rgba(248,239,234,0.9))]"
+          : "bg-[linear-gradient(150deg,rgba(255,252,248,0.92),rgba(244,236,226,0.86))]"
       }`}
     >
       <div
         className={`flex items-center justify-between gap-4 px-5 py-4 ${
           day.is_today ? "border-b border-gold/25" :
           day.is_closed || !day.turni.length ? "" :
-          "border-b border-stone/55"
+          "border-b border-stone/45"
         }`}
       >
         <div className="flex items-center gap-3">
+          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-white/60 bg-white/68 text-center shadow-[0_14px_32px_-24px_rgba(28,22,18,0.5)]">
+            <span className="font-display text-lg leading-none text-ink">{formatDayNumber(day.date)}</span>
+          </div>
           <div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-terracotta/55">
+            <p className="ui-kicker text-[11px] font-semibold uppercase text-terracotta/58">
               {day.weekday_label}
             </p>
-            <p className={`font-display text-xl ${day.is_today ? "text-ink" : "text-ink/80"}`}>
-              {formatShortDate(day.date)}
+            <p className={`font-display text-xl ${day.is_today ? "text-ink" : "text-ink/82"}`}>
+              {formatMonthLabel(day.date)}
             </p>
           </div>
           {day.is_today && (
@@ -200,6 +280,8 @@ function DayRow({ day }: { day: OwnerAgendaDay }) {
         </div>
         {!day.is_closed && day.total_booked_covers > 0 && (
           <p className="shrink-0 text-sm text-ink/48">
+            <span className="font-semibold text-ink">{day.total_booking_count}</span>{" "}
+            {day.total_booking_count === 1 ? "prenotazione" : "prenotazioni"} ·{" "}
             <span className="font-semibold text-ink">{day.total_booked_covers}</span> coperti
           </p>
         )}
@@ -222,7 +304,7 @@ function TurnoChip({ date, turno }: { date: string; turno: OwnerAgendaTurno }) {
   return (
     <Link
       href={`/bookings?date=${date}&turno=${encodeURIComponent(turno.turno)}`}
-      className="flex min-w-[160px] flex-1 flex-col gap-2.5 rounded-[1.2rem] border border-stone/65 bg-ivory/55 px-4 py-3 transition hover:border-gold hover:bg-white"
+      className="flex min-w-[170px] flex-1 flex-col gap-2.5 rounded-[1.2rem] border border-stone/55 bg-white/62 px-4 py-3 transition hover:border-gold hover:bg-white"
     >
       <div className="flex items-start justify-between gap-2">
         <div>
@@ -241,8 +323,11 @@ function TurnoChip({ date, turno }: { date: string; turno: OwnerAgendaTurno }) {
           />
         </div>
         <p className="mt-1.5 text-sm font-semibold text-ink">
+          {turno.booking_count} {turno.booking_count === 1 ? "prenotazione" : "prenotazioni"}
+        </p>
+        <p className="text-xs text-ink/48">
           {turno.booked_covers}
-          <span className="font-normal text-ink/42">/{turno.max_covers}</span>
+          <span className="text-ink/42">/{turno.max_covers} coperti</span>
         </p>
       </div>
     </Link>
@@ -253,4 +338,20 @@ function formatShortDate(value: string) {
   return new Intl.DateTimeFormat("it-IT", { day: "2-digit", month: "short" }).format(
     new Date(`${value}T12:00:00`),
   );
+}
+
+function formatDayNumber(value: string) {
+  return new Intl.DateTimeFormat("it-IT", { day: "2-digit" }).format(new Date(`${value}T12:00:00`));
+}
+
+function formatMonthLabel(value: string) {
+  return new Intl.DateTimeFormat("it-IT", { month: "short" }).format(new Date(`${value}T12:00:00`));
+}
+
+function formatTurnoName(value: string) {
+  const normalized = value.trim();
+  if (!normalized) {
+    return "Servizio";
+  }
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1);
 }

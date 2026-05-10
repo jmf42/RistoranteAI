@@ -166,7 +166,7 @@ def test_bookings_list_handles_legacy_unreadable_pii_without_crashing(client, db
     assert response.status_code == 200
     payload = response.json()
     assert payload[0]["customer_name"] == "Dato non disponibile"
-    assert payload[0]["customer_phone"] == "****"
+    assert payload[0]["customer_phone"] == "Dato non disponibile"
 
 
 def test_twilio_voice_fallback_returns_italian_dial_flow_for_known_restaurant(client, db_session):

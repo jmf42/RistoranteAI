@@ -212,8 +212,8 @@ export default function SettingsPage() {
               <label className="grid gap-2 text-sm text-ink/65">
                 Greeting iniziale
                 <textarea
-                  rows={2}
-                  className="rounded-2xl border border-stone bg-white/80 px-4 py-3 text-ink outline-none transition focus:border-gold"
+                  rows={3}
+                  className="w-full min-w-0 rounded-2xl border border-stone bg-white/80 px-4 py-3 text-ink outline-none transition focus:border-gold"
                   placeholder="{saluto}, Trattoria Madonnina. Come posso aiutarla?"
                   value={form.custom_greeting ?? ""}
                   onChange={(e) => updateField("custom_greeting", e.target.value || null)}
@@ -222,8 +222,8 @@ export default function SettingsPage() {
               <label className="grid gap-2 text-sm text-ink/65">
                 Istruzioni Agente (Stile, Menù, Regole)
                 <textarea
-                  rows={3}
-                  className="rounded-2xl border border-stone bg-white/80 px-4 py-3 text-ink outline-none transition focus:border-gold"
+                  rows={8}
+                  className="w-full min-w-0 rounded-2xl border border-stone bg-white/80 px-4 py-3 text-ink outline-none transition focus:border-gold"
                   placeholder="Warm, concise, premium Italian hospitality tone."
                   value={form.agent_style_notes ?? ""}
                   onChange={(e) => updateField("agent_style_notes", e.target.value || null)}
@@ -278,7 +278,7 @@ export default function SettingsPage() {
                     Inizio
                     <input
                       type="time"
-                      className="rounded-2xl border border-stone bg-white/80 px-4 py-3 text-ink outline-none transition focus:border-gold"
+                      className="w-full min-w-0 rounded-2xl border border-stone bg-white/80 px-4 py-3 text-ink outline-none transition focus:border-gold"
                       value={turno.start}
                       onChange={(e) =>
                         setForm((cur) =>
@@ -293,7 +293,7 @@ export default function SettingsPage() {
                     Fine
                     <input
                       type="time"
-                      className="rounded-2xl border border-stone bg-white/80 px-4 py-3 text-ink outline-none transition focus:border-gold"
+                      className="w-full min-w-0 rounded-2xl border border-stone bg-white/80 px-4 py-3 text-ink outline-none transition focus:border-gold"
                       value={turno.end}
                       onChange={(e) =>
                         setForm((cur) =>
@@ -309,7 +309,7 @@ export default function SettingsPage() {
                     <input
                       type="number"
                       min={1}
-                      className="rounded-2xl border border-stone bg-white/80 px-4 py-3 text-ink outline-none transition focus:border-gold"
+                      className="w-full min-w-0 rounded-2xl border border-stone bg-white/80 px-4 py-3 text-ink outline-none transition focus:border-gold"
                       value={turno.max_covers}
                       onChange={(e) =>
                         setForm((cur) =>
@@ -356,7 +356,7 @@ export default function SettingsPage() {
                   <input
                     type="number"
                     min={0}
-                    className="rounded-2xl border border-stone bg-ivory/80 px-4 py-3 text-ink outline-none transition focus:border-gold"
+                    className="w-full min-w-0 rounded-2xl border border-stone bg-ivory/80 px-4 py-3 text-ink outline-none transition focus:border-gold"
                     value={value}
                     onChange={(e) =>
                       updateField("booking_rules", { ...form.booking_rules, [key]: Number(e.target.value) })
@@ -411,7 +411,7 @@ function Field({
     <label className="grid gap-2 text-sm text-ink/65">
       {label}
       <input
-        className={`rounded-2xl border border-stone px-4 py-3 text-ink outline-none transition focus:border-gold ${
+        className={`w-full min-w-0 rounded-2xl border border-stone px-4 py-3 text-ink outline-none transition focus:border-gold ${
           disabled ? "bg-stone/20 text-ink/50" : "bg-ivory/80"
         }`}
         value={value}

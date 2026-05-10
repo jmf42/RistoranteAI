@@ -6,7 +6,14 @@ from typing import Any
 from sqlalchemy import Select, asc, func, select
 from sqlalchemy.orm import Session
 
-from app.core.security import decrypt_pii_or_fallback, encrypt_pii, hash_phone, mask_phone, normalize_phone
+from app.core.security import (
+    decrypt_pii_or_fallback,
+    encrypt_pii,
+    hash_email,
+    hash_phone,
+    normalize_email,
+    normalize_phone,
+)
 from app.models import Booking, BookingEvent, Customer, Restaurant, User
 from app.schemas.booking import BookingCreate, BookingRead, BookingUpdate
 from app.schemas.common import BookingStatus
@@ -68,19 +75,22 @@ def booking_to_read(booking: Booking) -> BookingRead:
         party_size=booking.party_size,
         customer_name=decrypt_pii_or_fallback(booking.customer_name_encrypted),
         customer_phone=decrypt_pii_or_fallback(booking.customer_phone_encrypted),
+        customer_email=(
+            decrypt_pii_or_fallback(booking.customer_email_encrypted, fallback="")
+            if booking.customer_email_encrypted
+            else None
+        ),
         special_requests=booking.special_requests,
         status=booking.status,
         source=booking.source,
         customer_id=booking.customer_id,
+        channel_metadata=booking.channel_metadata or {},
+        guest_access_version=booking.guest_access_version,
         created_at=booking.created_at.isoformat(),
         updated_at=booking.updated_at.isoformat(),
     )
 
 
-def booking_to_read_masked(booking: Booking) -> BookingRead:
-    """Like booking_to_read but masks the phone number for list views."""
-    full = booking_to_read(booking)
-    return full.model_copy(update={"customer_phone": mask_phone(full.customer_phone)})
 
 
 def find_turno_name(restaurant: Restaurant, booking_time: time) -> str:
@@ -104,6 +114,8 @@ def upsert_customer(
     phone_hash: str,
     name_encrypted: str,
     phone_encrypted: str,
+    email_encrypted: str | None,
+    email_hash: str | None,
     booking_date: date,
 ) -> Customer:
     customer = db.scalar(
@@ -114,6 +126,9 @@ def upsert_customer(
     )
     if customer:
         customer.name_encrypted = name_encrypted
+        customer.phone_encrypted = phone_encrypted
+        customer.email_encrypted = email_encrypted
+        customer.email_hash = email_hash
         customer.booking_count += 1
         customer.last_booking_date = booking_date
     else:
@@ -122,6 +137,8 @@ def upsert_customer(
             phone_hash=phone_hash,
             name_encrypted=name_encrypted,
             phone_encrypted=phone_encrypted,
+            email_encrypted=email_encrypted,
+            email_hash=email_hash,
             booking_count=1,
             last_booking_date=booking_date,
         )
@@ -193,18 +210,30 @@ def create_booking(
     # Duplicate guard: reject if same phone+date+time+party_size booking exists within last 5 minutes
     normalized_phone = normalize_phone(payload.customer_phone)
     phone_hash = hash_phone(normalized_phone)
+    normalized_email = normalize_email(str(payload.customer_email)) if payload.customer_email else None
+    email_hash = hash_email(normalized_email) if normalized_email else None
     recent_cutoff = datetime.now(UTC) - timedelta(minutes=5)
-    duplicate_id = db.scalar(
-        select(Booking.id).where(
+    duplicate_stmt = select(Booking.id).where(
             Booking.restaurant_id == restaurant.id,
             Booking.date == payload.date,
             Booking.time == payload.time,
             Booking.party_size == payload.party_size,
-            Booking.customer_phone_hash == phone_hash,
             Booking.status.in_(ACTIVE_STATUSES),
             Booking.created_at >= recent_cutoff,
         )
-    )
+    if payload.idempotency_key:
+        duplicate_stmt = duplicate_stmt.where(
+            Booking.source == str(payload.source),
+            Booking.idempotency_key == payload.idempotency_key,
+        )
+    else:
+        if email_hash:
+            duplicate_stmt = duplicate_stmt.where(
+                (Booking.customer_phone_hash == phone_hash) | (Booking.customer_email_hash == email_hash)
+            )
+        else:
+            duplicate_stmt = duplicate_stmt.where(Booking.customer_phone_hash == phone_hash)
+    duplicate_id = db.scalar(duplicate_stmt)
     if duplicate_id:
         return None, {
             "reason": _italian_reason("booking_already_exists"),
@@ -215,6 +244,7 @@ def create_booking(
     confirmation_code = generate_confirmation_code(db, restaurant, payload.date)
     name_encrypted = encrypt_pii(payload.customer_name)
     phone_encrypted = encrypt_pii(normalized_phone)
+    email_encrypted = encrypt_pii(normalized_email) if normalized_email else None
 
     customer = upsert_customer(
         db,
@@ -222,6 +252,8 @@ def create_booking(
         phone_hash=phone_hash,
         name_encrypted=name_encrypted,
         phone_encrypted=phone_encrypted,
+        email_encrypted=email_encrypted,
+        email_hash=email_hash,
         booking_date=payload.date,
     )
 
@@ -235,9 +267,14 @@ def create_booking(
         customer_name_encrypted=name_encrypted,
         customer_phone_encrypted=phone_encrypted,
         customer_phone_hash=phone_hash,
+        customer_email_encrypted=email_encrypted,
+        customer_email_hash=email_hash,
         special_requests=payload.special_requests,
         status=str(payload.status),
         source=str(payload.source),
+        channel_metadata=payload.channel_metadata,
+        guest_access_version=payload.guest_access_version,
+        idempotency_key=payload.idempotency_key,
         customer_id=customer.id,
     )
     db.add(booking)
@@ -254,6 +291,7 @@ def create_booking(
             "party_size": payload.party_size,
             "turno": turno_name,
             "confirmation_code": confirmation_code,
+            "source": str(payload.source),
         },
     )
 
@@ -278,7 +316,7 @@ def list_bookings(
         stmt = stmt.where(Booking.status == status)
     stmt = stmt.order_by(asc(Booking.date), asc(Booking.time)).limit(limit)
     bookings = db.scalars(stmt).all()
-    return [booking_to_read_masked(booking) for booking in bookings]
+    return [booking_to_read(booking) for booking in bookings]
 
 
 def get_booking(db: Session, *, booking_id: str, restaurant_id: str | None = None) -> Booking | None:
@@ -336,17 +374,22 @@ def update_booking(
         return None, {"reason": reason, "alternatives": availability.get("alternatives", [])}
 
     change_log: dict[str, Any] = {}
+    status_affecting_change = False
     if changes.date is not None and changes.date != booking.date:
         change_log["date"] = {"from": booking.date.isoformat(), "to": changes.date.isoformat()}
+        status_affecting_change = True
     if changes.time is not None and changes.time != booking.time:
         change_log["time"] = {"from": booking.time.isoformat(), "to": changes.time.isoformat()}
+        status_affecting_change = True
     if changes.party_size is not None and changes.party_size != booking.party_size:
         change_log["party_size"] = {"from": booking.party_size, "to": changes.party_size}
+        status_affecting_change = True
     if changes.status is not None and str(changes.status) != booking.status:
         change_log["status"] = {
             "from": booking.status,
             "to": str(changes.status),
         }
+        status_affecting_change = True
 
     booking.date = target_date
     booking.time = target_time
@@ -355,18 +398,31 @@ def update_booking(
     if changes.customer_name is not None:
         booking.customer_name_encrypted = encrypt_pii(changes.customer_name)
         change_log["customer_name"] = "updated"
+        status_affecting_change = True
     if changes.customer_phone is not None:
         normalized_phone = normalize_phone(changes.customer_phone)
         booking.customer_phone_encrypted = encrypt_pii(normalized_phone)
         booking.customer_phone_hash = hash_phone(normalized_phone)
         change_log["customer_phone"] = "updated"
+        status_affecting_change = True
+    if "customer_email" in changes.model_fields_set:
+        if changes.customer_email is None:
+            booking.customer_email_encrypted = None
+            booking.customer_email_hash = None
+        else:
+            normalized_email = normalize_email(str(changes.customer_email))
+            booking.customer_email_encrypted = encrypt_pii(normalized_email)
+            booking.customer_email_hash = hash_email(normalized_email)
+        change_log["customer_email"] = "updated"
+        status_affecting_change = True
     if "special_requests" in changes.model_fields_set:
         booking.special_requests = changes.special_requests
+        change_log["special_requests"] = "updated"
     if changes.status is not None:
         booking.status = str(changes.status)
         if booking.status == "no_show":
             increment_customer_stat(db, customer_id=booking.customer_id, stat="no_show")
-    elif change_log:
+    elif status_affecting_change:
         booking.status = BookingStatus.modified
     db.add(booking)
     db.flush()
