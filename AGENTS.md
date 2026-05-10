@@ -4,13 +4,14 @@ Use this file as the first orientation point for future coding agents working in
 
 ## Product Intent
 
-Ristorante AI is an AI phone receptionist and restaurant operations dashboard for restaurants.
+Ristorante AI is an AI phone receptionist, restaurant operations dashboard, and public reservation flow for restaurants.
 
 The repo exists to prove the full loop:
 
 - Twilio and OpenAI Realtime call context entering the backend
 - real reservation logic against restaurant capacity rules
 - owner/operator dashboard workflows against the same source of truth
+- guest-facing online reservations using the same booking engine
 
 ## Start Here
 
@@ -19,28 +20,31 @@ Read these in order:
 1. `docs/LLM_GUIDE.md`
 2. `docs/PRODUCTION_STATE.md`
 3. `docs/ARCHITECTURE.md`
-4. `docs/OPERATIONS.md`
-5. `docs/INTEGRATIONS.md`
-6. `docs/OPENAI_REALTIME_READINESS.md`
+4. `docs/SETUP.md`
+5. `docs/OPERATIONS.md`
+6. `docs/INTEGRATIONS.md`
+7. `docs/DATABASE.md`
+8. `docs/OPENAI_REALTIME_READINESS.md`
 
 Then verify the repo state:
 
 - `cd backend && uv run ruff check app tests`
-- `cd backend && uv run pytest`
+- `cd backend && DATABASE_URL=sqlite:///./test.db uv run pytest`
 - `cd dashboard && npm run build`
 
 ## Current Ground Truth
 
-As of `2026-04-07`:
+As of `2026-05-10`:
 
 - backend is deployed to Cloud Run
 - frontend is deployed to Cloud Run
 - database is Supabase Postgres
-- live migration target in the repo is Alembic `0011 (head)`
+- live migration target in the repo is Alembic `0012 (head)`
 - current public environment is live staging, not final public production
+- current production blocker: deployed `/readyz` fails until the Supabase `database-url` secret is corrected
 - local verification baseline is:
   - `cd backend && uv run ruff check app tests`
-  - `cd backend && uv run pytest`
+  - `cd backend && DATABASE_URL=sqlite:///./test.db uv run pytest`
   - `cd dashboard && npm run build`
 
 ## Codebase Map
@@ -50,7 +54,7 @@ As of `2026-04-07`:
 - `backend/app/api/`
   HTTP boundaries only.
 - `backend/app/services/`
-  booking engine, analytics, availability logic, and seeding.
+  booking engine, analytics, availability logic, public reservation logic, notifications, OpenAI Realtime bridge, and seeding.
 - `backend/app/models/entities.py`
   SQLAlchemy source of truth.
 - `backend/app/core/`
@@ -58,7 +62,7 @@ As of `2026-04-07`:
 - `backend/alembic/`
   migration history.
 - `dashboard/app/`
-  route-level screens.
+  route-level screens, including owner/operator pages and public reservation pages.
 - `dashboard/components/`
   shared shell, auth UI, workspace switching, charts, and layout pieces.
 - `dashboard/lib/api.ts`

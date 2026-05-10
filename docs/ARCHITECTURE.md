@@ -1,15 +1,15 @@
 # Architecture
 
-Last updated: `2026-04-10`
+Last updated: `2026-05-10`
 
 ## System Shape
 
 The product has three core parts:
 
 - `backend/`
-  FastAPI application. Source of truth for auth, restaurant config, booking logic, analytics, and voice orchestration.
+  FastAPI application. Source of truth for auth, restaurant config, booking logic, analytics, public reservations, and voice orchestration.
 - `dashboard/`
-  Next.js application for owners and platform operators.
+  Next.js application for owners, platform operators, and guest reservation pages.
 - Supabase Postgres
   Shared application database.
 
@@ -52,12 +52,30 @@ Caller hears the agent
 9. The backend writes authoritative state to Postgres.
 10. The dashboard reads the same state the agent used.
 
+## Public Reservation Runtime
+
+```text
+Guest
+  ↓
+Dashboard /reserve/[slug]
+  ↓
+Backend /api/public/restaurants/{slug}/...
+  ↓
+Booking engine + availability service
+  ↓
+Supabase Postgres
+  ↓
+Guest manage token + notification outbox
+```
+
+Public reservations use the same booking engine and capacity rules as the phone agent and owner dashboard. Guest management links are token-based and stored through `booking_guest_tokens`.
+
 ## Backend Layers
 
 - `app/api/`
-  HTTP and websocket boundaries only.
+  HTTP and websocket boundaries only, including authenticated owner/operator routes, tool routes, Twilio routes, Studio routes, and public reservation routes.
 - `app/services/`
-  Booking logic, availability, analytics, and the OpenAI realtime bridge.
+  Booking logic, availability, analytics, public reservation helpers, notifications, and the OpenAI realtime bridge.
 - `app/models/entities.py`
   SQLAlchemy source of truth.
 - `app/core/`
@@ -85,7 +103,7 @@ This keeps business logic private and server-side, which matches the OpenAI Real
 ## Dashboard Layers
 
 - `dashboard/app/`
-  Route screens.
+  Route screens for the dashboard, Studio, and public reservation pages.
 - `dashboard/components/`
   Shell, layout, workspace UI, shared cards/charts.
 - `dashboard/lib/api.ts`
@@ -116,14 +134,17 @@ The database remains authoritative for:
 - booking events
 - customers
 - call logs
+- guest booking tokens
+- notification outbox
 - users and access control
 
-The voice system is not a separate source of truth. OpenAI Realtime is only the live conversation engine; every real write still goes through the backend and DB.
+The voice system and public reservation pages are not separate sources of truth. OpenAI Realtime is only the live conversation engine; every real write still goes through the backend and DB.
 
 ## Important Production Notes
 
 - `call_logs` are finalized locally from the live session, not fetched later from a vendor console.
 - `openai_prompt_override` and `openai_realtime_settings` are stored per restaurant.
+- `online_booking_settings` controls the public reservation flow per restaurant.
 - `voice_provider`, `provider_call_id`, and `twilio_call_sid` are the generic call-tracking fields.
 - old ElevenLabs columns remain in the schema only as compatibility fields for historical data and migration safety.
 - Human transfer is available, but the prompt policy treats it as a last resort. Normal booking clarification should stay with the AI agent unless the caller asks for a human, the request is out of policy, audio remains unclear after targeted retries, or the tool/bridge path cannot safely complete.

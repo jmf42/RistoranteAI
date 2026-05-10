@@ -2,34 +2,46 @@
 
 Last updated: `2026-05-10`
 
-Ristorante AI is an AI phone receptionist and restaurant operations dashboard.
+Ristorante AI is an AI phone receptionist and restaurant operations dashboard for restaurants.
 
-The product has three connected surfaces:
+The repo proves one connected operating loop:
 
-- a FastAPI backend that owns auth, booking rules, analytics, and Twilio/OpenAI-Realtime voice orchestration
-- a Next.js dashboard for restaurant owners and the platform operator
-- a managed PostgreSQL database on Supabase
+- callers reach the restaurant through Twilio
+- the backend bridges the call to OpenAI Realtime
+- booking tools run on the backend against real capacity rules
+- owners/operators use the dashboard against the same database
+- guests can create and manage public web reservations
 
-## Current Live State
+## Current State
 
-The stack is live on Google Cloud Run and Supabase:
+This is a live-staging project, not final public production.
 
-- frontend: `https://ristorante-ai-dashboard-jc7mvuujwq-ew.a.run.app`
+Cloud Run services:
+
 - backend: `https://ristorante-ai-api-jc7mvuujwq-ew.a.run.app`
-- database: Supabase Postgres, repo migration target currently `0012 (head)`
+- dashboard: `https://ristorante-ai-dashboard-jc7mvuujwq-ew.a.run.app`
 
-Important:
+Database:
 
-- the live environment is operational
-- it is still best described as `live staging`
-- the current Supabase project still contains demo/staging data
-- the backend-owned Twilio inbound path is now understood and documented
-- real PSTN calls have verified the OpenAI Realtime path, booking tools, transcript persistence, and usage logging
-- the `2026-04-10` call review found reliability and prompt fixes that must be redeployed before the next live validation
-- the studio now supports single-scenario text simulation and multi-scenario `simulate-suite` regression runs
-- public online reservations are implemented locally through `/reserve/[slug]` and `/reserve/manage/[token]`
+- intended runtime: Supabase Postgres
+- repo migration target: Alembic `0012 (head)`
+- current blocker: the deployed backend cannot reach the configured Supabase project, so `/readyz` returns `500`
 
-Read `/Users/juanmanuelfontes/Ristorante AI/docs/PRODUCTION_STATE.md` before making any production claims.
+What works locally:
+
+- backend lint and tests pass
+- dashboard production build passes
+- Alembic upgrades through `0012` on a local database
+
+What must be fixed before live production testing:
+
+1. Correct the production `database-url` secret in Google Secret Manager.
+2. Confirm backend `/readyz` returns `200`.
+3. Apply Alembic migrations to the real database.
+4. Redeploy backend and dashboard from the intended branch.
+5. Run the production smoke test, Studio tests, and one real Twilio call.
+
+Read `docs/PRODUCTION_STATE.md` before making production claims.
 
 ## Local Quick Start
 
@@ -52,8 +64,8 @@ Backend:
 ```bash
 cd backend
 uv run ruff check app tests
-uv run pytest
-uv run alembic upgrade head
+DATABASE_URL=sqlite:///./test.db uv run pytest
+DATABASE_URL=sqlite:///./alembic_test.db uv run alembic upgrade head
 ```
 
 Dashboard:
@@ -76,25 +88,31 @@ python3 scripts/production_smoke_test.py
 ## Repo Map
 
 - `backend/`
-  FastAPI app, Alembic migrations, tests, deployment packaging, and public reservation API.
+  FastAPI app, auth, restaurant config, booking engine, Twilio/OpenAI Realtime bridge, public reservation API, Alembic migrations, tests, and backend deployment packaging.
 - `dashboard/`
-  Next.js owner/operator dashboard plus public reservation pages.
+  Next.js owner/operator dashboard, operator Studio, and public reservation pages.
 - `docs/`
-  the real handoff layer for engineering, deployment, and integrations.
+  Handoff layer for architecture, production state, operations, integrations, and setup.
 - `scripts/`
-  operational helper scripts such as secret generation and production smoke tests.
+  Operational helper scripts such as secret generation and production smoke tests.
+
+Deployment entrypoint:
+
+- use `Makefile` targets for migrations, deploys, and smoke tests
+- avoid ad hoc deployment scripts; the old duplicated deploy scripts have been removed
 
 ## Documentation Map
 
 Read in this order if you are new:
 
-1. `docs/LLM_GUIDE.md`
+1. `docs/README.md`
 2. `docs/PRODUCTION_STATE.md`
 3. `docs/ARCHITECTURE.md`
-4. `docs/DATABASE.md`
+4. `docs/SETUP.md`
 5. `docs/OPERATIONS.md`
 6. `docs/INTEGRATIONS.md`
-7. `docs/OPENAI_REALTIME_READINESS.md`
+7. `docs/DATABASE.md`
+8. `docs/OPENAI_REALTIME_READINESS.md`
 
 Then use the focused docs as needed:
 
@@ -108,21 +126,23 @@ Then use the focused docs as needed:
 
 ## Deployment Shape
 
-Current verified deployment path:
+Deployment target:
 
 - frontend on Cloud Run
 - backend on Cloud Run
 - database on Supabase Postgres
 - secrets in Google Secret Manager
 
-The verified deployment and operational details are in `docs/OPERATIONS.md`.
+Operational details are in `docs/OPERATIONS.md`.
 
 ## What Is Still Needed Before Public Production
 
 - clean production Supabase project or a deliberate cleanup decision for the current one
+- corrected production `DATABASE_URL` secret and green `/readyz`
 - custom domains and DNS/TLS
 - Sentry DSN or equivalent production error tracking activation
 - post-fix live call verification after the backend redeploy
 - current dashboard URL included in backend CORS allowed origins
 - human transfer validation for only the allowed escalation cases
+- public reservation create/manage/cancel validation against the live database
 - first real restaurant tenant data

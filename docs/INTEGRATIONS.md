@@ -1,12 +1,13 @@
 # Integrations
 
-Last updated: `2026-04-10`
+Last updated: `2026-05-10`
 
 This file is the single source of truth for the live voice stack:
 
 - Twilio for PSTN phone numbers and media streams
 - OpenAI Realtime for voice + orchestration
 - backend server-side tools for booking actions
+- public web reservations for guest booking creation and management
 - Supabase Postgres as the source of truth
 
 ## Supported Voice Path
@@ -58,6 +59,15 @@ This fallback is only for technical failure handling.
 - `PUT /api/studio/config`
 - `DELETE /api/studio/config`
 
+### Public Reservations
+
+- `GET /api/public/restaurants/{slug}/reservation-config`
+- `POST /api/public/restaurants/{slug}/availability`
+- `POST /api/public/restaurants/{slug}/bookings`
+- `GET /api/public/bookings/{manage_token}`
+- `POST /api/public/bookings/{manage_token}/modify`
+- `POST /api/public/bookings/{manage_token}/cancel`
+
 The studio is the platform-operator console for testing prompt, session config, and tool behavior before or during rollout.
 
 The current studio surface also exposes:
@@ -75,6 +85,7 @@ The current studio surface also exposes:
 - `OPENAI_API_KEY`
 - `TOOL_SECRET`
 - `PUBLIC_BASE_URL`
+- `PUBLIC_WEB_BASE_URL`
 - `TWILIO_ACCOUNT_SID`
 - `TWILIO_AUTH_TOKEN`
 
@@ -83,8 +94,11 @@ The current studio surface also exposes:
 - `OPENAI_REALTIME_MODEL` default `gpt-realtime-1.5`
 - `OPENAI_REALTIME_VOICE` default `cedar`
 - `OPENAI_REALTIME_BASE_URL` default `wss://api.openai.com/v1/realtime?model=gpt-realtime-1.5`
+- `NOTIFICATION_FROM_EMAIL`, `SMTP_HOST`, `SMTP_USERNAME`, `SMTP_PASSWORD` for public reservation emails
 
 `PUBLIC_BASE_URL` must be the public backend origin Twilio can reach. It is used to generate the media-stream and status callback URLs.
+
+`PUBLIC_WEB_BASE_URL` must be the public dashboard origin used for guest reservation manage links.
 
 Important:
 - Twilio `<Stream url>` does not support query strings.

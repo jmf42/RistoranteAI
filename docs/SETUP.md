@@ -1,6 +1,6 @@
 # Setup
 
-Last updated: `2026-04-10`
+Last updated: `2026-05-10`
 
 ## Local Fast Path
 
@@ -28,9 +28,12 @@ AUTO_CREATE_SCHEMA=true
 SEED_DEMO=true
 TOOL_SECRET=local-tool-secret
 PUBLIC_BASE_URL=http://127.0.0.1:8000
+PUBLIC_WEB_BASE_URL=http://127.0.0.1:3000
 OPENAI_API_KEY=
 OPENAI_REALTIME_MODEL=gpt-realtime-1.5
 OPENAI_REALTIME_VOICE=cedar
+NOTIFICATION_FROM_EMAIL=
+SMTP_HOST=
 ```
 
 You can leave `OPENAI_API_KEY` empty until you want to run real Realtime sessions. The app will still boot, but live Realtime simulation and phone-agent behavior will fail until the key is present.
@@ -68,6 +71,8 @@ uv run alembic upgrade head
   default `cedar`
 - `PUBLIC_BASE_URL`
   public backend base URL used in Twilio stream and callback URLs
+- `PUBLIC_WEB_BASE_URL`
+  public dashboard origin used for guest booking manage links
 - `TWILIO_ACCOUNT_SID`
   required for live transfer to a human
 - `TWILIO_AUTH_TOKEN`
@@ -95,8 +100,8 @@ Backend:
 ```bash
 cd backend
 uv run ruff check app tests
-uv run pytest
-uv run alembic upgrade head
+DATABASE_URL=sqlite:///./test.db uv run pytest
+DATABASE_URL=sqlite:///./alembic_test.db uv run alembic upgrade head
 ```
 
 Frontend:
@@ -114,3 +119,7 @@ On Cloud Run default `*.run.app` domains:
 - use `/readyz` for readiness
 
 Do not rely on `/healthz` for public smoke checks, because Google intercepts it before the request reaches the app.
+
+## Current Production Caveat
+
+The live backend can return `/health = 200` while `/readyz = 500` if the Supabase database secret is wrong. For production readiness, `/readyz` must return `200` before migrations, smoke tests, Studio tests, or Twilio calls are considered valid.
