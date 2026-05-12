@@ -91,9 +91,9 @@ The current studio surface also exposes:
 
 ### Optional backend tuning
 
-- `OPENAI_REALTIME_MODEL` default `gpt-realtime-1.5`
+- `OPENAI_REALTIME_MODEL` default `gpt-realtime-2`
 - `OPENAI_REALTIME_VOICE` default `cedar`
-- `OPENAI_REALTIME_BASE_URL` default `wss://api.openai.com/v1/realtime?model=gpt-realtime-1.5`
+- `OPENAI_REALTIME_BASE_URL` default `wss://api.openai.com/v1/realtime?model=gpt-realtime-2`
 - `NOTIFICATION_FROM_EMAIL`, `SMTP_HOST`, `SMTP_USERNAME`, `SMTP_PASSWORD` for public reservation emails
 
 `PUBLIC_BASE_URL` must be the public backend origin Twilio can reach. It is used to generate the media-stream and status callback URLs.
@@ -125,7 +125,7 @@ curl -i http://127.0.0.1:8000/api/tools/health \
 
 The backend creates a GA Realtime session using server-side WebSocket orchestration and sends:
 
-- `model = gpt-realtime-1.5` or saved per-restaurant override
+- `model = gpt-realtime-2` or saved per-restaurant override
 - `audio.input.format = audio/pcmu` for Twilio G.711 mu-law
 - `audio.output.format = audio/pcmu`
 - `audio.input.transcription.model = gpt-4o-transcribe-latest`

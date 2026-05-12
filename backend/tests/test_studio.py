@@ -25,7 +25,7 @@ def test_operator_can_preview_realtime_agent_blueprint(client, db_session):
     assert payload["config_diff"]
     assert payload["presets"]
     assert payload["scenarios"]
-    assert payload["effective_session_overrides"]["model"] == "gpt-realtime-1.5"
+    assert payload["effective_session_overrides"]["model"] == "gpt-realtime-2"
     assert payload["session_update"]["session"]["type"] == "realtime"
     assert "Apri in italiano solo come default iniziale" in payload["prompt"]
     assert "cambia SOLO la lingua della risposta" in payload["prompt"]
@@ -106,7 +106,7 @@ def test_operator_can_save_and_reset_persistent_studio_config(client, db_session
             "restaurant_id": restaurant.id,
             "prompt_override": "Prompt di produzione personalizzato",
             "session_overrides": {
-                "model": "gpt-realtime-1.5",
+                "model": "gpt-realtime-2",
                 "voice": "cedar",
                 "tool_choice": "auto",
                 "max_response_output_tokens": 180,
@@ -125,7 +125,7 @@ def test_operator_can_save_and_reset_persistent_studio_config(client, db_session
     assert save_payload["published_at"]
     db_session.refresh(restaurant)
     assert restaurant.openai_prompt_override == "Prompt di produzione personalizzato"
-    assert restaurant.openai_realtime_settings["model"] == "gpt-realtime-1.5"
+    assert restaurant.openai_realtime_settings["model"] == "gpt-realtime-2"
     assert restaurant.openai_realtime_settings["voice"] == "cedar"
     assert "max_response_output_tokens" not in restaurant.openai_realtime_settings
     assert "tool_choice" not in restaurant.openai_realtime_settings
@@ -134,8 +134,8 @@ def test_operator_can_save_and_reset_persistent_studio_config(client, db_session
     assert preview_response.status_code == 200
     preview_payload = preview_response.json()
     assert preview_payload["saved_prompt_override"] == "Prompt di produzione personalizzato"
-    assert preview_payload["saved_session_overrides"]["model"] == "gpt-realtime-1.5"
-    assert preview_payload["session_update"]["session"]["model"] == "gpt-realtime-1.5"
+    assert preview_payload["saved_session_overrides"]["model"] == "gpt-realtime-2"
+    assert preview_payload["session_update"]["session"]["model"] == "gpt-realtime-2"
     assert preview_payload["session_update"]["session"]["audio"]["output"]["voice"] == "cedar"
     assert isinstance(preview_payload["config_diff"], list)
 

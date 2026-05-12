@@ -30,7 +30,7 @@ TOOL_SECRET=local-tool-secret
 PUBLIC_BASE_URL=http://127.0.0.1:8000
 PUBLIC_WEB_BASE_URL=http://127.0.0.1:3000
 OPENAI_API_KEY=
-OPENAI_REALTIME_MODEL=gpt-realtime-1.5
+OPENAI_REALTIME_MODEL=gpt-realtime-2
 OPENAI_REALTIME_VOICE=cedar
 NOTIFICATION_FROM_EMAIL=
 SMTP_HOST=
@@ -66,7 +66,7 @@ uv run alembic upgrade head
 - `OPENAI_API_KEY`
   required for live Realtime sessions
 - `OPENAI_REALTIME_MODEL`
-  default `gpt-realtime-1.5`
+  default `gpt-realtime-2`
 - `OPENAI_REALTIME_VOICE`
   default `cedar`
 - `PUBLIC_BASE_URL`

@@ -34,7 +34,7 @@ from app.services.bookings import (
     update_booking,
 )
 
-SUPPORTED_REALTIME_MODELS = {"gpt-realtime", "gpt-realtime-1.5", "gpt-realtime-mini"}
+SUPPORTED_REALTIME_MODELS = {"gpt-realtime", "gpt-realtime-1.5", "gpt-realtime-2", "gpt-realtime-mini"}
 SUPPORTED_REALTIME_VOICES = {
     "alloy",
     "ash",
@@ -105,7 +105,7 @@ STUDIO_PRESETS = [
             "traceability, and concise replies."
         ),
         "session_overrides": {
-            "model": "gpt-realtime-1.5",
+            "model": "gpt-realtime-2",
             "voice": "cedar",
             "tool_choice": "auto",
             "turn_detection_type": "server_vad",
@@ -126,7 +126,7 @@ STUDIO_PRESETS = [
             "turn-taking and stronger noise handling."
         ),
         "session_overrides": {
-            "model": "gpt-realtime-1.5",
+            "model": "gpt-realtime-2",
             "voice": "cedar",
             "tool_choice": "auto",
             "turn_detection_type": "server_vad",

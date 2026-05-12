@@ -40,10 +40,10 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("TOOL_SECRET", "ELEVENLABS_TOOL_SECRET"),
     )
     openai_api_key: str | None = Field(default=None, validation_alias="OPENAI_API_KEY")
-    openai_realtime_model: str = Field(default="gpt-realtime-1.5", validation_alias="OPENAI_REALTIME_MODEL")
+    openai_realtime_model: str = Field(default="gpt-realtime-2", validation_alias="OPENAI_REALTIME_MODEL")
     openai_realtime_voice: str = Field(default="cedar", validation_alias="OPENAI_REALTIME_VOICE")
     openai_realtime_base_url: str = Field(
-        default="wss://api.openai.com/v1/realtime?model=gpt-realtime-1.5",
+        default="wss://api.openai.com/v1/realtime?model=gpt-realtime-2",
         validation_alias="OPENAI_REALTIME_BASE_URL",
     )
     public_base_url: str | None = Field(default=None, validation_alias="PUBLIC_BASE_URL")

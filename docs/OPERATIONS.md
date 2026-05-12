@@ -40,7 +40,7 @@ TWILIO_AUTH_TOKEN
 Recommended optional config:
 
 ```env
-OPENAI_REALTIME_MODEL=gpt-realtime-1.5
+OPENAI_REALTIME_MODEL=gpt-realtime-2
 OPENAI_REALTIME_VOICE=cedar
 NOTIFICATION_FROM_EMAIL=reservations@example.com
 SMTP_HOST=smtp.example.com

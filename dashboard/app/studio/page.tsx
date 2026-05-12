@@ -491,7 +491,8 @@ export default function StudioPage() {
                     </p>
                     <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                       <Field label="Model">
-                        <select value={overrides.model ?? "gpt-realtime-1.5"} onChange={(e) => set("model", e.target.value)}>
+                        <select value={overrides.model ?? "gpt-realtime-2"} onChange={(e) => set("model", e.target.value)}>
+                          <option value="gpt-realtime-2">gpt-realtime-2</option>
                           <option value="gpt-realtime-1.5">gpt-realtime-1.5</option>
                           <option value="gpt-realtime">gpt-realtime</option>
                           <option value="gpt-realtime-mini">gpt-realtime-mini</option>

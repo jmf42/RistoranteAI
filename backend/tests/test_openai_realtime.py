@@ -126,8 +126,8 @@ def test_write_tools_unlock_after_successful_availability_check(db_session):
 
 
 def test_realtime_ws_url_uses_selected_model() -> None:
-    url = realtime_ws_url("gpt-realtime-1.5")
-    assert "model=gpt-realtime-1.5" in url
+    url = realtime_ws_url("gpt-realtime-2")
+    assert "model=gpt-realtime-2" in url
 
 
 def test_realtime_headers_use_authorization_only() -> None:
@@ -204,10 +204,10 @@ def test_session_update_with_semantic_vad(db_session):
 
 def test_session_update_applies_model_and_voice_overrides(db_session):
     restaurant = db_session.scalar(select(Restaurant).where(Restaurant.slug == "trattoria-da-mario"))
-    overrides = RealtimeSessionOverrides(model="gpt-realtime-1.5", voice="cedar")
+    overrides = RealtimeSessionOverrides(model="gpt-realtime-2", voice="cedar")
     session_update = build_session_update(restaurant, caller_phone="+390000000000", overrides=overrides)
     session = session_update["session"]
-    assert session["model"] == "gpt-realtime-1.5"
+    assert session["model"] == "gpt-realtime-2"
     assert session["audio"]["output"]["voice"] == "cedar"
 
 
@@ -215,7 +215,7 @@ def test_session_update_uses_saved_restaurant_config_for_live_calls(db_session):
     restaurant = db_session.scalar(select(Restaurant).where(Restaurant.slug == "trattoria-da-mario"))
     restaurant.openai_prompt_override = "Prompt live personalizzato"
     restaurant.openai_realtime_settings = {
-        "model": "gpt-realtime-1.5",
+        "model": "gpt-realtime-2",
         "voice": "cedar",
         "max_response_output_tokens": 180,
         "noise_reduction_type": "far_field",
@@ -228,7 +228,7 @@ def test_session_update_uses_saved_restaurant_config_for_live_calls(db_session):
     session = session_update["session"]
 
     assert session["instructions"] == "Prompt live personalizzato"
-    assert session["model"] == "gpt-realtime-1.5"
+    assert session["model"] == "gpt-realtime-2"
     assert session["audio"]["output"]["voice"] == "cedar"
     assert "max_response_output_tokens" not in session
     assert session["audio"]["input"]["noise_reduction"]["type"] == "far_field"
