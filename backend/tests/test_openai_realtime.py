@@ -24,6 +24,7 @@ from app.services.openai_realtime import (
     _finish_initial_greeting,
     _ingest_assistant_transcript,
     _ingest_user_transcript,
+    _realtime_tool_requires_followup,
     _remember_assistant_audio_transcript,
     _run_silent_response_watchdog,
     _runtime_context_message,
@@ -79,6 +80,7 @@ def test_write_tools_stay_locked_until_successful_read_step():
     )
 
     assert _current_tool_scope(state) == (
+        "wait_for_user",
         "check_availability",
         "find_booking",
         "create_booking",
@@ -94,6 +96,7 @@ def test_write_tools_stay_locked_until_successful_read_step():
     )
 
     assert _current_tool_scope(state) == (
+        "wait_for_user",
         "check_availability",
         "find_booking",
         "create_booking",
@@ -112,6 +115,7 @@ def test_write_tools_unlock_after_successful_availability_check(db_session):
     _append_successful_availability(state, booking_date=booking_date, booking_time="20:00:00", party_size=2)
 
     assert _current_tool_scope(state) == (
+        "wait_for_user",
         "check_availability",
         "find_booking",
         "create_booking",
@@ -249,6 +253,7 @@ def test_session_update_uses_ga_session_shape(db_session):
     assert "language" not in audio["input"]["transcription"]
     assert session["parallel_tool_calls"] is False
     assert [tool["name"] for tool in session["tools"]] == [
+        "wait_for_user",
         "check_availability",
         "find_booking",
         "create_booking",
@@ -490,6 +495,64 @@ def test_realtime_tools_disallow_extra_fields_without_unsupported_strict_flag():
     for tool in tools:
         assert "strict" not in tool
         assert tool["parameters"]["additionalProperties"] is False
+
+
+def test_realtime_tools_include_openai_wait_for_user_noop():
+    tools = build_realtime_tools()
+    wait_tool = next(tool for tool in tools if tool["name"] == "wait_for_user")
+
+    assert wait_tool["type"] == "function"
+    assert "spoken response" in wait_tool["description"]
+    assert wait_tool["parameters"] == {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": False,
+    }
+
+
+def test_instructions_use_wait_for_user_for_non_addressed_audio(db_session):
+    restaurant = db_session.scalar(select(Restaurant).where(Restaurant.slug == "trattoria-da-mario"))
+    session_update = build_session_update(restaurant, caller_phone="+390000000000")
+    instructions = session_update["session"]["instructions"]
+
+    assert "wait_for_user" in instructions
+    assert "rumore di fondo" in instructions
+    assert "non rispondere a voce" in instructions
+    assert "non per richieste chiare ma incomprensibili" in instructions
+
+
+def test_wait_for_user_dispatch_is_noop_without_call_outcome(db_session):
+    session_factory = sessionmaker(bind=db_session.get_bind(), autoflush=False, autocommit=False)
+    restaurant = db_session.scalar(select(Restaurant).where(Restaurant.slug == "trattoria-da-mario"))
+    state = RealtimeCallState(
+        caller_phone="+393409991114",
+        twilio_call_sid="CA_wait_for_user",
+    )
+    original_outcome = state.outcome
+
+    result = _sync_dispatch_tool(
+        session_factory,
+        restaurant=restaurant,
+        state=state,
+        tool_name="wait_for_user",
+        arguments={},
+    )
+
+    assert result == {
+        "success": True,
+        "wait": True,
+        "assistant_instruction": (
+            "Resta in ascolto. Non rispondere a voce finché il cliente non si rivolge chiaramente a te."
+        ),
+    }
+    assert state.outcome == original_outcome
+    assert state.terminal_write_success is False
+
+
+def test_wait_for_user_does_not_trigger_spoken_tool_followup():
+    assert _realtime_tool_requires_followup("wait_for_user", {"success": True, "wait": True}) is False
+    assert _realtime_tool_requires_followup("check_availability", {"success": True}) is True
 
 
 def test_instructions_accept_natural_confirmations_and_close_after_success(db_session):
@@ -795,6 +858,7 @@ def test_find_booking_unlocks_modify_and_cancel_scope():
     )
 
     assert _current_tool_scope(state) == (
+        "wait_for_user",
         "check_availability",
         "find_booking",
         "create_booking",

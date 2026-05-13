@@ -48,8 +48,9 @@ SUPPORTED_REALTIME_VOICES = {
     "verse",
 }
 RECOMMENDED_REALTIME_VOICES = {"marin", "cedar"}
-INITIAL_TOOL_NAMES = ("check_availability", "find_booking", "create_booking", "escalate_to_human")
+INITIAL_TOOL_NAMES = ("wait_for_user", "check_availability", "find_booking", "create_booking", "escalate_to_human")
 FULL_TOOL_NAMES = (
+    "wait_for_user",
     "check_availability",
     "find_booking",
     "create_booking",
@@ -1057,8 +1058,15 @@ CRITICAL RULES — NEVER VIOLATE
   Esempi: "DX", "casi persone", lettere isolate, rumori o parole incompatibili con la domanda.
 
 Tools
+- Strumento di attesa silenziosa: wait_for_user.
 - Strumenti di lettura: check_availability, find_booking.
 - Strumenti di scrittura: create_booking, modify_booking, cancel_booking.
+- Se l'ultimo audio è silenzio, rumore di fondo, musica d'attesa, TV, conversazione laterale
+  o parole non rivolte a te, chiama wait_for_user e non rispondere a voce.
+- Dopo wait_for_user resta in ascolto. Non dire "sono qui", "non ho capito", "faccia pure"
+  o frasi simili. Riprendi solo quando il cliente si rivolge chiaramente a te.
+- Usa wait_for_user solo per audio non rivolto all'assistente, non per richieste chiare ma incomprensibili:
+  in quel caso chiedi una chiarificazione mirata.
 - Usa gli strumenti di lettura in modo proattivo quando servono.
 - Usa gli strumenti di scrittura rispettando le regole di conferma specifiche per l'azione
   (creazione vs modifica/cancellazione) spiegate nella sezione Write Action Rules.
@@ -1214,6 +1222,22 @@ def build_realtime_tools(
     tool_names: tuple[str, ...] = FULL_TOOL_NAMES,
 ) -> list[dict[str, Any]]:
     tools = [
+        {
+            "type": "function",
+            "name": "wait_for_user",
+            "description": (
+                "Call this when the latest audio does not need a spoken response, "
+                "such as silence, background noise, hold music, TV audio, side "
+                "conversation, or speech not addressed to the assistant. This tool "
+                "helps end the turn without a spoken reply."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+                "additionalProperties": False,
+            },
+        },
         {
             "type": "function",
             "name": "check_availability",
@@ -1523,6 +1547,12 @@ def _build_tool_scope_update(
             "tool_choice": overrides.tool_choice,
         },
     }
+
+
+def _realtime_tool_requires_followup(tool_name: str, result: dict[str, Any]) -> bool:
+    if tool_name == "wait_for_user" or result.get("wait") is True:
+        return False
+    return True
 
 
 def _buffer_twilio_media_payload(
@@ -2185,6 +2215,16 @@ def _sync_dispatch_tool(
     db: Session = db_factory()
     try:
         try:
+            if tool_name == "wait_for_user":
+                return {
+                    "success": True,
+                    "wait": True,
+                    "assistant_instruction": (
+                        "Resta in ascolto. Non rispondere a voce finché il cliente "
+                        "non si rivolge chiaramente a te."
+                    ),
+                }
+
             if tool_name == "check_availability":
                 if state.last_requested_field and not state.last_user_reply_valid:
                     return _guard_failed_result(
@@ -3081,7 +3121,10 @@ async def bridge_twilio_media_stream(
                                     }
                                 )
                             )
-                            state.pending_tool_followup = True
+                            state.pending_tool_followup = _realtime_tool_requires_followup(
+                                str(item.get("name")),
+                                result,
+                            )
                             await _sync_tool_scope(
                                 realtime_ws,
                                 restaurant,
@@ -3468,7 +3511,10 @@ async def run_text_simulation(
                                 }
                             )
                         )
-                        pending_tool_followup = True
+                        pending_tool_followup = _realtime_tool_requires_followup(
+                            str(item.get("name")),
+                            result,
+                        )
                     continue
 
                 if event_type == "response.done":
