@@ -191,6 +191,28 @@ PROMPT_SECTIONS = [
     "Safety & Escalation",
     "Unclear Audio",
 ]
+GREETING_DISCIPLINE_BLOCK = """
+
+Greeting Discipline
+- Usa "Buongiorno" o "Buonasera" solo nel primo turno della chiamata.
+- Dopo il saluto iniziale, non iniziare più le risposte con "Buongiorno", "Buonasera", "Salve" o il nome del ristorante.
+- Nei turni successivi vai diretto al dato mancante, al preambolo del tool o alla conferma.
+- Se il cliente saluta di nuovo, rispondi brevemente ma non riaprire la chiamata.
+""".strip()
+REPEATED_GREETING_PATTERNS = (
+    re.compile(
+        r"(?im)^\s*-?\s*inizia\s+(?:la\s+frase|ogni\s+(?:frase|risposta)|ciascuna\s+(?:frase|risposta))\s+con\s+"
+        r"(?:buongiorno|buonasera|salve)\b[^\n]*(?:\n|$)"
+    ),
+    re.compile(
+        r"(?im)^\s*-?\s*(?:ogni|ciascuna)\s+(?:frase|risposta)\s+"
+        r"(?:deve\s+)?(?:iniziare|aprire)\s+con\s+(?:buongiorno|buonasera|salve)\b[^\n]*(?:\n|$)"
+    ),
+    re.compile(
+        r"(?i)\s+inizia\s+(?:la\s+frase|ogni\s+(?:frase|risposta)|ciascuna\s+(?:frase|risposta))\s+con\s+"
+        r"(?:buongiorno|buonasera|salve)\b[^.\n]*(?:\.\s*)?"
+    ),
+)
 OVERRIDE_FIELD_LABELS = {
     "model": "Model",
     "voice": "Voice",
@@ -899,13 +921,13 @@ def build_realtime_instructions(
 ) -> str:
     stored_prompt = (restaurant.openai_prompt_override or "").strip()
     if prompt_override and prompt_override.strip():
-        return prompt_override.strip()
+        return stabilize_realtime_prompt(prompt_override.strip())
     if stored_prompt:
-        return stored_prompt
+        return stabilize_realtime_prompt(stored_prompt)
 
     booking_rules = restaurant.booking_rules or {}
     large_group_threshold = booking_rules.get("large_group_threshold", 8)
-    return f"""
+    prompt = f"""
 Role & Objective
 - Sei il receptionist telefonico di {restaurant.name}.
 - Gestisci nuove prenotazioni, modifiche, cancellazioni, richieste informative e passaggio a un umano quando serve.
@@ -931,6 +953,12 @@ Personality & Tone
 - Stile: {restaurant.agent_style_notes or "Tono ospitale, elegante e diretto."}
 - Varia leggermente le frasi brevi di cortesia e i preamboli, ma non cambiare la struttura del flusso.
 - Puoi usare raramente parole naturali come "Ecco" o "Allora" se aiutano il ritmo, ma senza esagerare.
+
+Greeting Discipline
+- Usa "Buongiorno" o "Buonasera" solo nel primo turno della chiamata.
+- Dopo il saluto iniziale, non iniziare più le risposte con "Buongiorno", "Buonasera", "Salve" o il nome del ristorante.
+- Nei turni successivi vai diretto al dato mancante, al preambolo del tool o alla conferma.
+- Se il cliente saluta di nuovo, rispondi brevemente ma non riaprire la chiamata.
 
 Language
 - Se il cliente parla chiaramente un'altra lingua che sai gestire, segui la lingua del cliente.
@@ -989,6 +1017,8 @@ Tools
 Conversation Flow
 - Se l'intento è già chiaro, vai subito nel flusso corretto. Non chiedere "Come posso aiutarla?" se non serve.
 - Se la conversazione è già avviata, rispondi direttamente senza ripetere un saluto iniziale.
+- Se il cliente chiede genericamente disponibilità, usa un ponte naturale:
+  "Certo, controllo volentieri: per che ora e per quante persone?"
 - Nuova prenotazione:
   - raccogli giorno, ora e numero persone
   - se manca un dato, chiedi solo quel dato
@@ -1080,6 +1110,19 @@ Unclear Audio
   e procedi. Non interrompere il flusso magico per incomprensioni vocali minori.
 - Usa tentativi mirati solo se manca un dato obbligatorio (es. data o ora). Al massimo due tentativi, poi escala.
 """.strip()
+    return stabilize_realtime_prompt(prompt)
+
+
+def stabilize_realtime_prompt(prompt: str) -> str:
+    cleaned = prompt.strip()
+    removed_repeated_greeting_rule = False
+    for pattern in REPEATED_GREETING_PATTERNS:
+        cleaned, replacements = pattern.subn("", cleaned)
+        removed_repeated_greeting_rule = removed_repeated_greeting_rule or replacements > 0
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+    if removed_repeated_greeting_rule and "Greeting Discipline" not in cleaned:
+        cleaned = f"{cleaned}\n\n{GREETING_DISCIPLINE_BLOCK}"
+    return cleaned
 
 
 def build_realtime_tools(
@@ -1565,6 +1608,15 @@ def studio_prompt_diagnostics(
 ) -> list[dict[str, str]]:
     normalized = prompt.strip()
     lower_prompt = normalized.lower()
+    repeated_greeting_rule = any(pattern.search(normalized) for pattern in REPEATED_GREETING_PATTERNS)
+    has_greeting_discipline = (
+        "saluto iniziale" in lower_prompt
+        and (
+            "non aprire ogni risposta" in lower_prompt
+            or "non iniziare più le risposte" in lower_prompt
+            or "senza ripetere un saluto iniziale" in lower_prompt
+        )
+    )
     diagnostics = [
         {
             "label": "Structured sections",
@@ -1621,6 +1673,14 @@ def studio_prompt_diagnostics(
             "label": "Variety rule",
             "status": "good" if "varia" in lower_prompt or "non ripetere" in lower_prompt else "warn",
             "detail": "Serve una regola esplicita contro la ripetizione per evitare che l'agente sembri meccanico.",
+        },
+        {
+            "label": "Greeting discipline",
+            "status": "warn" if repeated_greeting_rule or not has_greeting_discipline else "good",
+            "detail": (
+                "Il saluto deve comparire solo all'apertura della chiamata; i turni successivi "
+                "devono andare direttamente al dato mancante, al tool o alla conferma."
+            ),
         },
         {
             "label": "Escape hatch",

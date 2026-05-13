@@ -84,9 +84,53 @@ def test_default_prompt_keeps_info_calls_open_with_one_brief_follow_up(db_sessio
 
     prompt = build_realtime_instructions(restaurant, caller_phone="+393401112233")
 
+    assert "Greeting Discipline" in prompt
+    assert 'Usa "Buongiorno" o "Buonasera" solo nel primo turno della chiamata.' in prompt
+    assert "Certo, controllo volentieri: per che ora e per quante persone?" in prompt
     assert "Dopo una risposta informativa completa, fai una sola breve apertura naturale" in prompt
     assert "Se vuole, posso anche aiutarla con una prenotazione." in prompt
     assert "Se il cliente non aggiunge altro o resta in silenzio, chiudi con cortesia." in prompt
+
+
+def test_stored_prompt_repeated_greeting_rule_is_neutralized(db_session):
+    restaurant = db_session.scalar(select(Restaurant).where(Restaurant.slug == "trattoria-da-mario"))
+    restaurant.openai_prompt_override = (
+        "Role & Objective\n- Test.\n\n"
+        "Personality & Tone\n"
+        "- Parla in italiano naturale, caldo, conciso e orientato all'azione. "
+        "Inizia la frase con Buongiorno, o Buonasera, in base all'orario.\n"
+    )
+    db_session.add(restaurant)
+    db_session.commit()
+
+    prompt = build_realtime_instructions(restaurant, caller_phone="+393401112233")
+
+    assert "Inizia la frase con Buongiorno" not in prompt
+    assert "Greeting Discipline" in prompt
+    assert 'non iniziare più le risposte con "Buongiorno"' in prompt
+
+
+def test_prompt_diagnostics_warn_when_prompt_repeats_greetings(db_session):
+    restaurant = db_session.scalar(select(Restaurant).where(Restaurant.slug == "trattoria-da-mario"))
+    prompt = (
+        "Role & Objective\n- Test.\n\n"
+        "Personality & Tone\n"
+        "- Parla in italiano naturale. Inizia la frase con Buongiorno, o Buonasera, in base all'orario.\n\n"
+        "Language\n- Segui la lingua del cliente.\n\n"
+        "Tools\n- Controllo subito.\n\n"
+        "Write Action Rules\n- Conferma esplicita in turno separato.\n\n"
+        "Safety & Escalation\n- La metto in contatto con il ristorante.\n\n"
+        "Unclear Audio\n- Non inventare."
+    )
+
+    diagnostics = studio_prompt_diagnostics(
+        prompt,
+        restaurant=restaurant,
+        effective_overrides=RealtimeSessionOverrides(),
+    )
+
+    greeting = next(item for item in diagnostics if item["label"] == "Greeting discipline")
+    assert greeting["status"] == "warn"
 
 
 def test_initial_greeting_audio_is_not_dropped_for_barge_in():
