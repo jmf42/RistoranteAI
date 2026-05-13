@@ -16,6 +16,7 @@ from app.services.openai_realtime import (
     RealtimeCallState,
     RealtimeSessionOverrides,
     _append_transcript_line,
+    _assistant_message_already_captured_from_audio,
     _buffer_twilio_media_payload,
     _build_conversation_summary_prompt,
     _build_tool_scope_update,
@@ -23,6 +24,7 @@ from app.services.openai_realtime import (
     _finish_initial_greeting,
     _ingest_assistant_transcript,
     _ingest_user_transcript,
+    _remember_assistant_audio_transcript,
     _run_silent_response_watchdog,
     _runtime_context_message,
     _send_response_create,
@@ -450,6 +452,32 @@ def test_append_transcript_line_skips_duplicate_consecutive_lines() -> None:
         "Agente: Controllo subito.",
         "Cliente: Va bene.",
     ]
+
+
+def test_assistant_item_done_skips_audio_transcript_already_recorded() -> None:
+    state = RealtimeCallState()
+
+    _remember_assistant_audio_transcript(
+        state,
+        item_id="msg_123",
+        text="Un attimo, controllo la disponibilità per domani. Per domani sera mi serve l'orario.",
+    )
+
+    assert _assistant_message_already_captured_from_audio(
+        state,
+        item_id="msg_123",
+        text="Un attimo, controllo la disponibilità per domani.",
+    )
+    assert _assistant_message_already_captured_from_audio(
+        state,
+        item_id=None,
+        text="Per domani sera mi serve l'orario.",
+    )
+    assert not _assistant_message_already_captured_from_audio(
+        state,
+        item_id="msg_456",
+        text="Ho disponibilità per le 19:00. A che nome prenoto?",
+    )
 
 
 def test_successful_call_outcome_marks_escalation_from_final_phrase() -> None:

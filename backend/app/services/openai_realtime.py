@@ -385,6 +385,8 @@ class RealtimeCallState:
     last_user_transcript: str = ""
     last_assistant_transcript: str = ""
     transcript_lines: list[str] = field(default_factory=list)
+    assistant_audio_transcript_item_ids: set[str] = field(default_factory=set)
+    assistant_audio_transcript_texts: list[str] = field(default_factory=list)
     tool_events: list[dict[str, Any]] = field(default_factory=list)
     outcome: str = "info_provided"
     call_status: str = "unknown"
@@ -549,6 +551,36 @@ def _append_transcript_line(state: RealtimeCallState, speaker: str, text: str) -
         return False
     state.transcript_lines.append(line)
     return True
+
+
+def _remember_assistant_audio_transcript(
+    state: RealtimeCallState,
+    *,
+    item_id: str | None,
+    text: str,
+) -> None:
+    if item_id:
+        state.assistant_audio_transcript_item_ids.add(item_id)
+    normalized = _normalized_text(text)
+    if normalized:
+        state.assistant_audio_transcript_texts.append(normalized)
+
+
+def _assistant_message_already_captured_from_audio(
+    state: RealtimeCallState,
+    *,
+    item_id: str | None,
+    text: str,
+) -> bool:
+    if item_id and item_id in state.assistant_audio_transcript_item_ids:
+        return True
+    normalized = _normalized_text(text)
+    if not normalized:
+        return False
+    for audio_text in state.assistant_audio_transcript_texts:
+        if normalized == audio_text or normalized in audio_text or audio_text in normalized:
+            return True
+    return False
 
 
 def _record_conversation_turn(
@@ -2908,9 +2940,15 @@ async def bridge_twilio_media_stream(
                         continue
 
                     if event_type == "response.output_audio_transcript.done":
+                        item_id = str(event.get("item_id") or "")
                         transcript = state.pending_assistant_audio_transcript.strip()
                         state.pending_assistant_audio_transcript = ""
                         if transcript:
+                            _remember_assistant_audio_transcript(
+                                state,
+                                item_id=item_id,
+                                text=transcript,
+                            )
                             _ingest_assistant_transcript(state, transcript)
                             _record_conversation_turn(state, role="assistant", text=transcript)
                             _append_transcript_line(state, "Agente", transcript)
@@ -2991,13 +3029,20 @@ async def bridge_twilio_media_stream(
                             )
                         elif item.get("type") == "message":
                             message_text = _extract_message_text(item)
+                            item_id = str(item.get("id") or "")
                             if message_text:
+                                if _assistant_message_already_captured_from_audio(
+                                    state,
+                                    item_id=item_id,
+                                    text=message_text,
+                                ):
+                                    continue
                                 _ingest_assistant_transcript(state, message_text)
                                 _record_conversation_turn(
                                     state,
                                     role="assistant",
                                     text=message_text,
-                                    item_id=str(item.get("id") or ""),
+                                    item_id=item_id,
                                 )
                                 if _append_transcript_line(state, "Agente", message_text):
                                     await _update_call(
