@@ -58,7 +58,7 @@ def test_operator_tool_sandbox_respects_runtime_tool_scope(client, db_session):
     assert response.status_code == 200
     payload = response.json()
     assert payload["result"]["success"] is False
-    assert "Tool non disponibile" in payload["result"]["reason"]
+    assert "verifica disponibilità positiva" in payload["result"]["reason"]
 
 
 def test_operator_can_run_realtime_text_simulation(client, db_session, monkeypatch):

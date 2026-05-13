@@ -48,7 +48,7 @@ SUPPORTED_REALTIME_VOICES = {
     "verse",
 }
 RECOMMENDED_REALTIME_VOICES = {"marin", "cedar"}
-READ_ONLY_TOOL_NAMES = ("check_availability", "find_booking", "escalate_to_human")
+INITIAL_TOOL_NAMES = ("check_availability", "find_booking", "create_booking", "escalate_to_human")
 FULL_TOOL_NAMES = (
     "check_availability",
     "find_booking",
@@ -1433,7 +1433,7 @@ def build_session_update(
     prompt_override: str | None = None,
     overrides: RealtimeSessionOverrides | None = None,
     include_diagnostics: bool = False,
-    tool_names: tuple[str, ...] = READ_ONLY_TOOL_NAMES,
+    tool_names: tuple[str, ...] = INITIAL_TOOL_NAMES,
 ) -> dict[str, Any]:
     tuning = merged_session_overrides(restaurant, overrides)
 
@@ -2061,6 +2061,42 @@ def _write_tools_unlocked(state: RealtimeCallState) -> bool:
     return False
 
 
+def _normalize_tool_time(value: Any) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    with suppress(ValueError):
+        return time.fromisoformat(raw).strftime("%H:%M")
+    return raw[:5]
+
+
+def _has_matching_successful_availability(state: RealtimeCallState, arguments: dict[str, Any]) -> bool:
+    requested_date = str(arguments.get("date") or "").strip()
+    requested_time = _normalize_tool_time(arguments.get("time"))
+    requested_party_size = _resolve_party_size(arguments, state.booking_context)
+    if not requested_date or not requested_time or requested_party_size <= 0:
+        return False
+
+    for event in reversed(state.tool_events):
+        if event.get("tool") != "check_availability":
+            continue
+        result = event.get("result") if isinstance(event.get("result"), dict) else {}
+        if result.get("available") is not True:
+            continue
+        checked_args = event.get("arguments") if isinstance(event.get("arguments"), dict) else {}
+        if str(checked_args.get("date") or "").strip() != requested_date:
+            continue
+        if _normalize_tool_time(checked_args.get("time")) != requested_time:
+            continue
+        try:
+            checked_party_size = int(checked_args.get("party_size") or 0)
+        except (TypeError, ValueError):
+            checked_party_size = 0
+        if checked_party_size == requested_party_size:
+            return True
+    return False
+
+
 def _sync_call_update(
     db_factory: sessionmaker,
     *,
@@ -2189,6 +2225,34 @@ def _sync_dispatch_tool(
                 }
 
             if tool_name == "create_booking":
+                customer_name = str(
+                    arguments.get("customer_name")
+                    or arguments.get("name")
+                    or ""
+                ).strip()
+                if not _has_matching_successful_availability(state, arguments):
+                    return {
+                        "success": False,
+                        "reason": (
+                            "Prima di creare la prenotazione serve una verifica disponibilità "
+                            "positiva per la stessa data, ora e numero di persone."
+                        ),
+                        "retry_write": False,
+                        "should_escalate": False,
+                        "assistant_instruction": (
+                            "Non creare ancora la prenotazione. Verifica prima la disponibilità "
+                            "con data, ora e numero persone; se è disponibile, chiedi il nome e "
+                            "poi riprova."
+                        ),
+                    }
+                if not customer_name:
+                    return {
+                        "success": False,
+                        "reason": "Manca il nome cliente per completare la prenotazione.",
+                        "retry_write": False,
+                        "should_escalate": False,
+                        "assistant_instruction": "Chiedi solo il nome per la prenotazione.",
+                    }
                 existing_bookings = find_bookings_for_caller(
                     db,
                     restaurant_id=restaurant.id,
@@ -2228,11 +2292,7 @@ def _sync_dispatch_tool(
                         date=date.fromisoformat(arguments["date"]),
                         time=time.fromisoformat(arguments["time"]),
                         party_size=_resolve_party_size(arguments, state.booking_context),
-                        customer_name=str(
-                            arguments.get("customer_name")
-                            or arguments.get("name")
-                            or ""
-                        ).strip(),
+                        customer_name=customer_name,
                         customer_phone=state.caller_phone,
                         special_requests=arguments.get("special_requests"),
                         source=BookingSource.ai_phone,
@@ -2255,10 +2315,7 @@ def _sync_dispatch_tool(
                 state.booking_context.setdefault("date", arguments["date"])
                 state.booking_context.setdefault("requested_time", arguments["time"])
                 state.booking_context.setdefault("party_size", _resolve_party_size(arguments, state.booking_context))
-                state.booking_context.setdefault(
-                    "customer_name",
-                    str(arguments.get("customer_name") or arguments.get("name") or "").strip(),
-                )
+                state.booking_context.setdefault("customer_name", customer_name)
                 return {
                     "success": True,
                     "confirmation_code": booking.confirmation_code,
@@ -2477,7 +2534,7 @@ def _current_tool_scope(state: RealtimeCallState) -> tuple[str, ...]:
         return FULL_TOOL_NAMES
     if state.end_call_after_response:
         return ("escalate_to_human",)
-    return READ_ONLY_TOOL_NAMES
+    return INITIAL_TOOL_NAMES
 
 
 async def _sync_tool_scope(
