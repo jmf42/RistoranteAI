@@ -237,6 +237,14 @@ def test_session_update_propagates_speed_override_and_clamps(db_session):
     assert session["audio"]["output"]["speed"] == 0.25
 
 
+def test_session_update_default_silence_duration_is_phone_tuned(db_session):
+    """Default end-of-turn wait should be 600ms — the floor flagged "good" by studio readiness
+    (see _readiness phone-call check) and a 33% latency improvement over the previous 900ms."""
+    restaurant = db_session.scalar(select(Restaurant).where(Restaurant.slug == "trattoria-da-mario"))
+    session = build_session_update(restaurant, caller_phone="+390000000000")["session"]
+    assert session["audio"]["input"]["turn_detection"]["silence_duration_ms"] == 600
+
+
 def test_session_update_uses_saved_restaurant_config_for_live_calls(db_session):
     restaurant = db_session.scalar(select(Restaurant).where(Restaurant.slug == "trattoria-da-mario"))
     restaurant.openai_prompt_override = "Prompt live personalizzato"

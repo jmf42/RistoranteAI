@@ -112,7 +112,7 @@ STUDIO_PRESETS = [
             "tool_choice": "auto",
             "turn_detection_type": "server_vad",
             "vad_threshold": 0.58,
-            "vad_silence_duration_ms": 900,
+            "vad_silence_duration_ms": 600,
             "vad_idle_timeout_ms": 7000,
             "noise_reduction_type": "far_field",
             "tracing_enabled": True,
@@ -365,7 +365,7 @@ class RealtimeSessionOverrides:
     turn_detection_type: Literal["server_vad", "semantic_vad"] = "server_vad"
     vad_threshold: float = 0.58
     vad_prefix_padding_ms: int = 300
-    vad_silence_duration_ms: int = 900
+    vad_silence_duration_ms: int = 600
     vad_idle_timeout_ms: int = 7000
     semantic_vad_eagerness: Literal["low", "medium", "high", "auto"] = "medium"
     interrupt_response: bool = True
