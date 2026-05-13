@@ -921,9 +921,9 @@ def build_realtime_instructions(
 ) -> str:
     stored_prompt = (restaurant.openai_prompt_override or "").strip()
     if prompt_override and prompt_override.strip():
-        return stabilize_realtime_prompt(prompt_override.strip())
+        return stabilize_realtime_prompt(prompt_override.strip(), restaurant=restaurant)
     if stored_prompt:
-        return stabilize_realtime_prompt(stored_prompt)
+        return stabilize_realtime_prompt(stored_prompt, restaurant=restaurant)
 
     booking_rules = restaurant.booking_rules or {}
     large_group_threshold = booking_rules.get("large_group_threshold", 8)
@@ -1110,19 +1110,40 @@ Unclear Audio
   e procedi. Non interrompere il flusso magico per incomprensioni vocali minori.
 - Usa tentativi mirati solo se manca un dato obbligatorio (es. data o ora). Al massimo due tentativi, poi escala.
 """.strip()
-    return stabilize_realtime_prompt(prompt)
+    return stabilize_realtime_prompt(prompt, restaurant=restaurant)
 
 
-def stabilize_realtime_prompt(prompt: str) -> str:
+def stabilize_realtime_prompt(prompt: str, *, restaurant: Restaurant | None = None) -> str:
     cleaned = prompt.strip()
     removed_repeated_greeting_rule = False
     for pattern in REPEATED_GREETING_PATTERNS:
         cleaned, replacements = pattern.subn("", cleaned)
         removed_repeated_greeting_rule = removed_repeated_greeting_rule or replacements > 0
+    if restaurant is not None:
+        cleaned = refresh_realtime_prompt_context(cleaned, restaurant)
     cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
     if removed_repeated_greeting_rule and "Greeting Discipline" not in cleaned:
         cleaned = f"{cleaned}\n\n{GREETING_DISCIPLINE_BLOCK}"
     return cleaned
+
+
+def refresh_realtime_prompt_context(prompt: str, restaurant: Restaurant) -> str:
+    booking_rules = restaurant.booking_rules or {}
+    large_group_threshold = booking_rules.get("large_group_threshold", 8)
+    replacements = {
+        "Ristorante": restaurant.name,
+        "Indirizzo": restaurant.address,
+        "Timezone": restaurant.timezone,
+        "Orari": json.dumps(restaurant.opening_hours or {}, ensure_ascii=False),
+        "Turni": json.dumps(restaurant.turni or [], ensure_ascii=False),
+        "Chiusure settimanali": json.dumps(restaurant.weekly_closures or [], ensure_ascii=False),
+        "Chiusure straordinarie": json.dumps(restaurant.closure_dates or [], ensure_ascii=False),
+        "Soglia grandi gruppi": str(large_group_threshold),
+    }
+    refreshed = prompt
+    for label, value in replacements.items():
+        refreshed = re.sub(rf"(?m)^-\s*{re.escape(label)}:\s.*$", f"- {label}: {value}", refreshed)
+    return refreshed
 
 
 def build_realtime_tools(

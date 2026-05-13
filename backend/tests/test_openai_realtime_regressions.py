@@ -133,6 +133,39 @@ def test_prompt_diagnostics_warn_when_prompt_repeats_greetings(db_session):
     assert greeting["status"] == "warn"
 
 
+def test_stored_prompt_context_is_refreshed_from_restaurant_record(db_session):
+    restaurant = db_session.scalar(select(Restaurant).where(Restaurant.slug == "trattoria-da-mario"))
+    restaurant.opening_hours = {"lunch": "12:00-16:00", "dinner": "19:00-23:30"}
+    restaurant.turni = [
+        {"name": "Pranzo 1", "start": "12:00", "end": "14:00", "max_covers": 40},
+        {"name": "Pranzo 2", "start": "14:00", "end": "16:00", "max_covers": 40},
+    ]
+    restaurant.weekly_closures = []
+    restaurant.openai_prompt_override = (
+        "Context\n"
+        "- Ristorante: Old Name\n"
+        "- Indirizzo: Old Address\n"
+        "- Timezone: UTC\n"
+        '- Orari: {"lunch": "12:00-15:00"}\n'
+        '- Turni: [{"name": "Old", "max_covers": 10}]\n'
+        '- Chiusure settimanali: ["monday"]\n'
+        "- Chiusure straordinarie: []\n"
+        "- Soglia grandi gruppi: 99"
+    )
+    db_session.add(restaurant)
+    db_session.commit()
+
+    prompt = build_realtime_instructions(restaurant, caller_phone="+393401112233")
+
+    assert "- Ristorante: Trattoria da Mario" in prompt
+    assert "- Indirizzo: Via Roma 42, 20121 Milano" in prompt
+    assert "- Timezone: Europe/Rome" in prompt
+    assert '- Orari: {"lunch": "12:00-16:00", "dinner": "19:00-23:30"}' in prompt
+    assert '"max_covers": 40' in prompt
+    assert '- Chiusure settimanali: []' in prompt
+    assert "- Soglia grandi gruppi: 8" in prompt
+
+
 def test_initial_greeting_audio_is_not_dropped_for_barge_in():
     state = RealtimeCallState(caller_phone="+393401112233", twilio_call_sid="CA_barge_in")
     payload = base64.b64encode(b"\x00\x01\x02\x03").decode("ascii")
