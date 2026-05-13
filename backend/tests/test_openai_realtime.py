@@ -56,6 +56,22 @@ def _next_open_date_after(d: date) -> str:
     return candidate.isoformat()
 
 
+def _append_successful_availability(
+    state: RealtimeCallState,
+    *,
+    booking_date: str,
+    booking_time: str,
+    party_size: int,
+) -> None:
+    state.tool_events.append(
+        {
+            "tool": "check_availability",
+            "arguments": {"date": booking_date, "party_size": party_size, "time": booking_time},
+            "result": {"available": True, "slot": {"time": booking_time[:5]}},
+        }
+    )
+
+
 def test_write_tools_stay_locked_until_successful_read_step():
     state = RealtimeCallState(
         caller_phone="+393401112233",
@@ -65,6 +81,7 @@ def test_write_tools_stay_locked_until_successful_read_step():
     assert _current_tool_scope(state) == (
         "check_availability",
         "find_booking",
+        "create_booking",
         "escalate_to_human",
     )
 
@@ -79,6 +96,7 @@ def test_write_tools_stay_locked_until_successful_read_step():
     assert _current_tool_scope(state) == (
         "check_availability",
         "find_booking",
+        "create_booking",
         "escalate_to_human",
     )
 
@@ -91,13 +109,7 @@ def test_write_tools_unlock_after_successful_availability_check(db_session):
         caller_phone="+393409991111",
         twilio_call_sid="CA_availability_unlock",
     )
-    state.tool_events.append(
-        {
-            "tool": "check_availability",
-            "arguments": {"date": booking_date, "party_size": 2, "time": "20:00:00"},
-            "result": {"available": True, "slot": {"time": "20:00"}},
-        }
-    )
+    _append_successful_availability(state, booking_date=booking_date, booking_time="20:00:00", party_size=2)
 
     assert _current_tool_scope(state) == (
         "check_availability",
@@ -125,6 +137,59 @@ def test_write_tools_unlock_after_successful_availability_check(db_session):
     created = db_session.scalar(select(Booking).where(Booking.confirmation_code == result["confirmation_code"]))
     assert created is not None
     assert created.source == "ai_phone"
+
+
+def test_create_booking_requires_matching_successful_availability_check(db_session):
+    session_factory = sessionmaker(bind=db_session.get_bind(), autoflush=False, autocommit=False)
+    restaurant = db_session.scalar(select(Restaurant).where(Restaurant.slug == "trattoria-da-mario"))
+    booking_date = _next_open_date()
+    state = RealtimeCallState(
+        caller_phone="+393409991112",
+        twilio_call_sid="CA_create_guard",
+    )
+
+    result = _sync_dispatch_tool(
+        session_factory,
+        restaurant=restaurant,
+        state=state,
+        tool_name="create_booking",
+        arguments={
+            "date": booking_date,
+            "time": "20:00:00",
+            "party_size": 2,
+            "customer_name": "Luca",
+        },
+    )
+
+    assert result["success"] is False
+    assert "verifica disponibilità positiva" in result["reason"]
+
+
+def test_create_booking_allows_matching_availability_even_with_initial_tool_scope(db_session):
+    session_factory = sessionmaker(bind=db_session.get_bind(), autoflush=False, autocommit=False)
+    restaurant = db_session.scalar(select(Restaurant).where(Restaurant.slug == "trattoria-da-mario"))
+    booking_date = _next_open_date()
+    state = RealtimeCallState(
+        caller_phone="+393409991113",
+        twilio_call_sid="CA_create_initial_scope",
+    )
+    _append_successful_availability(state, booking_date=booking_date, booking_time="20:00:00", party_size=4)
+
+    result = _sync_dispatch_tool(
+        session_factory,
+        restaurant=restaurant,
+        state=state,
+        tool_name="create_booking",
+        arguments={
+            "date": booking_date,
+            "time": "20:00:00",
+            "party_size": 4,
+            "customer_name": "Francesco",
+        },
+    )
+
+    assert result["success"] is True
+    assert result["booking_id"]
 
 
 def test_realtime_ws_url_uses_selected_model() -> None:
@@ -186,6 +251,7 @@ def test_session_update_uses_ga_session_shape(db_session):
     assert [tool["name"] for tool in session["tools"]] == [
         "check_availability",
         "find_booking",
+        "create_booking",
         "escalate_to_human",
     ]
     assert "modalities" not in session
@@ -376,6 +442,7 @@ def test_create_booking_allows_same_caller_when_not_same_day_and_time(db_session
         caller_phone="+393339876543",
         twilio_call_sid="CA_same_caller_new_slot",
     )
+    _append_successful_availability(state, booking_date=booking_date, booking_time=booking_time, party_size=2)
     _ingest_assistant_transcript(
         state,
         f"{booking_date} alle {booking_time} per 2 persone a nome Luca. Confermo?",
@@ -558,6 +625,12 @@ def test_duplicate_booking_tool_prefers_self_service_over_forced_escalation(db_s
     state = RealtimeCallState(
         caller_phone="+393339876543",
         twilio_call_sid="CA_duplicate_self_service",
+    )
+    _append_successful_availability(
+        state,
+        booking_date=existing.date.isoformat(),
+        booking_time=existing.time.isoformat(),
+        party_size=existing.party_size,
     )
     _ingest_assistant_transcript(
         state,
@@ -754,6 +827,7 @@ def test_create_booking_success_sets_terminal_write_success(db_session):
         caller_phone="+393409991112",
         twilio_call_sid="CA_terminal_write_success",
     )
+    _append_successful_availability(state, booking_date=booking_date, booking_time="20:00:00", party_size=2)
     _ingest_assistant_transcript(
         state, "5 aprile alle 20:00 per 2 persone a nome Luca. Confermo?"
     )

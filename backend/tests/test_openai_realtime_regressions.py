@@ -336,6 +336,7 @@ def test_create_booking_is_blocked_when_time_outside_turni(db_session):
 def test_successful_create_booking_links_call_log_and_summary_uses_tool_truth(db_session):
     session_factory = sessionmaker(bind=db_session.get_bind(), autoflush=False, autocommit=False)
     restaurant = db_session.scalar(select(Restaurant).where(Restaurant.slug == "trattoria-da-mario"))
+    booking_date = _next_open_date()
     call_log = CallLog(
         restaurant_id=restaurant.id,
         voice_provider=restaurant.voice_provider,
@@ -350,6 +351,13 @@ def test_successful_create_booking_links_call_log_and_summary_uses_tool_truth(db
     db_session.commit()
 
     state = RealtimeCallState(caller_phone="+393409991111", twilio_call_sid="CA_linked_booking")
+    state.tool_events.append(
+        {
+            "tool": "check_availability",
+            "arguments": {"date": booking_date, "party_size": 2, "time": "21:00:00"},
+            "result": {"available": True, "slot": {"time": "21:00"}},
+        }
+    )
     _ingest_user_transcript(state, "Vorrei prenotare per martedi alle 21 per due persone.")
     _ingest_assistant_transcript(
         state,
@@ -363,7 +371,7 @@ def test_successful_create_booking_links_call_log_and_summary_uses_tool_truth(db
         state=state,
         tool_name="create_booking",
         arguments={
-            "date": _next_open_date(),
+            "date": booking_date,
             "time": "21:00:00",
             "party_size": 2,
             "customer_name": "Luca",
@@ -381,7 +389,7 @@ def test_successful_create_booking_links_call_log_and_summary_uses_tool_truth(db
         {
             "tool": "create_booking",
             "arguments": {
-                "date": _next_open_date(),
+                "date": booking_date,
                 "time": "21:00:00",
                 "party_size": 2,
                 "customer_name": "Luca",
