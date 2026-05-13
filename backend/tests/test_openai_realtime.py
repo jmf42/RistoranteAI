@@ -174,6 +174,8 @@ def test_session_update_uses_ga_session_shape(db_session):
     assert audio["input"]["format"] == {"type": "audio/pcmu"}
     assert audio["output"]["format"] == {"type": "audio/pcmu"}
     assert audio["output"]["voice"] is not None
+    # Speed must be propagated under audio.output (top-level "speed" stays absent per GA shape).
+    assert audio["output"]["speed"] == 1.1
     assert audio["input"]["turn_detection"]["type"] == "server_vad"
     assert audio["input"]["turn_detection"]["idle_timeout_ms"] == 7000
     assert session["truncation"]["type"] == "retention_ratio"
@@ -211,6 +213,28 @@ def test_session_update_applies_model_and_voice_overrides(db_session):
     session = session_update["session"]
     assert session["model"] == "gpt-realtime-2"
     assert session["audio"]["output"]["voice"] == "cedar"
+
+
+def test_session_update_propagates_speed_override_and_clamps(db_session):
+    restaurant = db_session.scalar(select(Restaurant).where(Restaurant.slug == "trattoria-da-mario"))
+    # In-range override is propagated verbatim.
+    session = build_session_update(
+        restaurant, caller_phone="+390000000000",
+        overrides=RealtimeSessionOverrides(speed=1.25),
+    )["session"]
+    assert session["audio"]["output"]["speed"] == 1.25
+    # Out-of-range above max gets clamped to 1.5 (OpenAI Realtime ceiling).
+    session = build_session_update(
+        restaurant, caller_phone="+390000000000",
+        overrides=RealtimeSessionOverrides(speed=2.0),
+    )["session"]
+    assert session["audio"]["output"]["speed"] == 1.5
+    # Below the floor (0.25) clamps up.
+    session = build_session_update(
+        restaurant, caller_phone="+390000000000",
+        overrides=RealtimeSessionOverrides(speed=0.1),
+    )["session"]
+    assert session["audio"]["output"]["speed"] == 0.25
 
 
 def test_session_update_uses_saved_restaurant_config_for_live_calls(db_session):

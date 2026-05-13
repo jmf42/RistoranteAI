@@ -67,6 +67,7 @@ SUMMARY_MODEL = "gpt-4o-mini"
 SUPPORTED_RUNTIME_OVERRIDE_FIELDS = {
     "model",
     "voice",
+    "speed",
     "tool_choice",
     "turn_detection_type",
     "vad_threshold",
@@ -86,6 +87,7 @@ SUPPORTED_RUNTIME_OVERRIDE_FIELDS = {
 PRACTICAL_STUDIO_FIELDS = {
     "model",
     "voice",
+    "speed",
     "turn_detection_type",
     "vad_threshold",
     "vad_silence_duration_ms",
@@ -358,7 +360,7 @@ class RealtimeSessionOverrides:
     voice: str | None = None
     tool_choice: Literal["auto", "none", "required"] = "auto"
     temperature: float = 0.8
-    speed: float = 0.95
+    speed: float = 1.1
     max_response_output_tokens: int = 300
     turn_detection_type: Literal["server_vad", "semantic_vad"] = "server_vad"
     vad_threshold: float = 0.58
@@ -1483,9 +1485,12 @@ def build_session_update(
         session["audio"]["input"]["turn_detection"]["idle_timeout_ms"] = tuning.vad_idle_timeout_ms
 
     if "audio" in output_modalities:
+        # OpenAI Realtime accepts speed in [0.25, 1.5]; default 1.0. Clamp defensively.
+        speed_clamped = max(0.25, min(1.5, float(tuning.speed)))
         session["audio"]["output"] = {
             "format": {"type": "audio/pcmu"},
             "voice": tuning.voice or settings.openai_realtime_voice,
+            "speed": speed_clamped,
         }
 
     if tuning.noise_reduction_type != "off":
