@@ -243,6 +243,7 @@ def test_session_update_uses_ga_session_shape(db_session):
     assert audio["input"]["turn_detection"]["idle_timeout_ms"] == 7000
     assert session["truncation"]["type"] == "retention_ratio"
     assert session["truncation"]["retention_ratio"] == 0.75
+    assert session["reasoning"] == {"effort": "low"}
     assert audio["input"]["transcription"]["model"] == "gpt-4o-mini-transcribe"
     assert "language" not in audio["input"]["transcription"]
     assert session["parallel_tool_calls"] is False
@@ -272,11 +273,21 @@ def test_session_update_with_semantic_vad(db_session):
 
 def test_session_update_applies_model_and_voice_overrides(db_session):
     restaurant = db_session.scalar(select(Restaurant).where(Restaurant.slug == "trattoria-da-mario"))
-    overrides = RealtimeSessionOverrides(model="gpt-realtime-2", voice="cedar")
+    overrides = RealtimeSessionOverrides(model="gpt-realtime-2", voice="cedar", reasoning_effort="minimal")
     session_update = build_session_update(restaurant, caller_phone="+390000000000", overrides=overrides)
     session = session_update["session"]
     assert session["model"] == "gpt-realtime-2"
     assert session["audio"]["output"]["voice"] == "cedar"
+    assert session["reasoning"] == {"effort": "minimal"}
+
+
+def test_session_update_omits_reasoning_for_non_reasoning_realtime_model(db_session):
+    restaurant = db_session.scalar(select(Restaurant).where(Restaurant.slug == "trattoria-da-mario"))
+    overrides = RealtimeSessionOverrides(model="gpt-realtime-1.5", reasoning_effort="low")
+    session_update = build_session_update(restaurant, caller_phone="+390000000000", overrides=overrides)
+
+    assert session_update["session"]["model"] == "gpt-realtime-1.5"
+    assert "reasoning" not in session_update["session"]
 
 
 def test_session_update_uses_saved_restaurant_config_for_live_calls(db_session):
@@ -285,6 +296,7 @@ def test_session_update_uses_saved_restaurant_config_for_live_calls(db_session):
     restaurant.openai_realtime_settings = {
         "model": "gpt-realtime-2",
         "voice": "cedar",
+        "reasoning_effort": "minimal",
         "max_response_output_tokens": 180,
         "noise_reduction_type": "far_field",
     }
@@ -298,6 +310,7 @@ def test_session_update_uses_saved_restaurant_config_for_live_calls(db_session):
     assert session["instructions"] == "Prompt live personalizzato"
     assert session["model"] == "gpt-realtime-2"
     assert session["audio"]["output"]["voice"] == "cedar"
+    assert session["reasoning"] == {"effort": "minimal"}
     assert "max_response_output_tokens" not in session
     assert session["audio"]["input"]["noise_reduction"]["type"] == "far_field"
 

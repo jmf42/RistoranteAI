@@ -67,6 +67,7 @@ SUMMARY_MODEL = "gpt-4o-mini"
 SUPPORTED_RUNTIME_OVERRIDE_FIELDS = {
     "model",
     "voice",
+    "reasoning_effort",
     "tool_choice",
     "turn_detection_type",
     "vad_threshold",
@@ -86,6 +87,7 @@ SUPPORTED_RUNTIME_OVERRIDE_FIELDS = {
 PRACTICAL_STUDIO_FIELDS = {
     "model",
     "voice",
+    "reasoning_effort",
     "turn_detection_type",
     "vad_threshold",
     "vad_silence_duration_ms",
@@ -107,6 +109,7 @@ STUDIO_PRESETS = [
         "session_overrides": {
             "model": "gpt-realtime-2",
             "voice": "cedar",
+            "reasoning_effort": "low",
             "tool_choice": "auto",
             "turn_detection_type": "server_vad",
             "vad_threshold": 0.58,
@@ -128,6 +131,7 @@ STUDIO_PRESETS = [
         "session_overrides": {
             "model": "gpt-realtime-2",
             "voice": "cedar",
+            "reasoning_effort": "low",
             "tool_choice": "auto",
             "turn_detection_type": "server_vad",
             "vad_threshold": 0.62,
@@ -137,6 +141,26 @@ STUDIO_PRESETS = [
             "tracing_enabled": True,
             "truncation_mode": "retention_ratio",
             "truncation_retention_ratio": 0.72,
+        },
+    },
+    {
+        "id": "natural_pauses",
+        "label": "Natural pauses",
+        "description": (
+            "Test preset for callers who pause, self-correct, or think aloud. "
+            "Uses semantic turn detection before promoting it to the live default."
+        ),
+        "session_overrides": {
+            "model": "gpt-realtime-2",
+            "voice": "cedar",
+            "reasoning_effort": "low",
+            "tool_choice": "auto",
+            "turn_detection_type": "semantic_vad",
+            "semantic_vad_eagerness": "medium",
+            "noise_reduction_type": "far_field",
+            "tracing_enabled": True,
+            "truncation_mode": "retention_ratio",
+            "truncation_retention_ratio": 0.75,
         },
     },
 ]
@@ -240,6 +264,7 @@ OVERRIDE_FIELD_LABELS = {
     "model": "Model",
     "voice": "Voice",
     "tool_choice": "Tool choice",
+    "reasoning_effort": "Reasoning effort",
     "temperature": "Temperature",
     "speed": "Speed",
     "max_response_output_tokens": "Max output tokens",
@@ -356,6 +381,7 @@ SLOT_21_MARKERS = {"21", "21:00", "9", "9:00", "9pm", "9 p.m", "dalle 21", "from
 class RealtimeSessionOverrides:
     model: str | None = None
     voice: str | None = None
+    reasoning_effort: Literal["minimal", "low", "medium", "high", "xhigh"] = "low"
     tool_choice: Literal["auto", "none", "required"] = "auto"
     temperature: float = 0.8
     speed: float = 0.95
@@ -467,6 +493,10 @@ def merged_session_overrides(
     if overrides is None:
         return base
     return replace(base, **_override_values(overrides))
+
+
+def _supports_realtime_reasoning(model: str | None) -> bool:
+    return (model or "").strip().startswith("gpt-realtime-2")
 
 
 def realtime_ws_url(model: str | None) -> str:
@@ -1436,6 +1466,7 @@ def build_session_update(
     tool_names: tuple[str, ...] = INITIAL_TOOL_NAMES,
 ) -> dict[str, Any]:
     tuning = merged_session_overrides(restaurant, overrides)
+    selected_model = tuning.model or settings.openai_realtime_model
 
     # -- Turn detection (flat session field per API spec) -------------------
     if tuning.turn_detection_type == "semantic_vad":
@@ -1458,7 +1489,7 @@ def build_session_update(
     # -- Session payload (GA shape for current Realtime WebSocket interface) --
     session: dict[str, Any] = {
         "type": "realtime",
-        "model": tuning.model or settings.openai_realtime_model,
+        "model": selected_model,
         "instructions": build_realtime_instructions(
             restaurant,
             caller_phone=caller_phone,
@@ -1479,6 +1510,8 @@ def build_session_update(
         "parallel_tool_calls": False,
         "tracing": "auto" if tuning.tracing_enabled else None,
     }
+    if _supports_realtime_reasoning(selected_model):
+        session["reasoning"] = {"effort": tuning.reasoning_effort}
     if tuning.turn_detection_type == "server_vad":
         session["audio"]["input"]["turn_detection"]["idle_timeout_ms"] = tuning.vad_idle_timeout_ms
 
@@ -1873,6 +1906,19 @@ def studio_recommendations(
             "label": "Tool choice mode",
             "status": "good" if session.get("tool_choice") == "auto" else "warn",
             "detail": "AUTO è la scelta più stabile qui: lascia usare i tool quando servono ma evita rigidità inutile.",
+        },
+        {
+            "label": "Realtime 2 reasoning",
+            "status": (
+                "good"
+                if not _supports_realtime_reasoning(str(session.get("model") or ""))
+                or (session.get("reasoning") or {}).get("effort") in {"minimal", "low"}
+                else "warn"
+            ),
+            "detail": (
+                "Per un receptionist telefonico con flusso guidato da tool, "
+                "OpenAI consiglia di partire da reasoning.effort=low."
+            ),
         },
         {
             "label": "Flexible input language",

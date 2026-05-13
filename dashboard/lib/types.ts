@@ -330,6 +330,7 @@ export interface StudioAgentPreview {
 export interface StudioSessionOverrides {
   model?: string | null;
   voice?: string | null;
+  reasoning_effort?: "minimal" | "low" | "medium" | "high" | "xhigh" | null;
   tool_choice?: "auto" | "none" | "required" | null;
   temperature?: number | null;
   speed?: number | null;
