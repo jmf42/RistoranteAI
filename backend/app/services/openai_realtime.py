@@ -213,6 +213,29 @@ REPEATED_GREETING_PATTERNS = (
         r"(?:buongiorno|buonasera|salve)\b[^.\n]*(?:\.\s*)?"
     ),
 )
+CREATE_BOOKING_CONFIRMATION_PATTERNS = (
+    re.compile(
+        r"(?im)^\s*-\s*Usa gli strumenti di scrittura solo dopo una conferma esplicita del cliente\s*\n"
+        r"\s*e solo nel turno successivo alla domanda finale di conferma\.\s*$"
+    ),
+    re.compile(
+        r"(?im)^\s*-\s*Prima di create_booking, modify_booking o cancel_booking: "
+        r"riassumi i dettagli in una frase e chiedi conferma\.\s*$"
+    ),
+    re.compile(
+        r"(?im)^\s*-\s*Esegui il tool solo nel turno successivo a una conferma chiara del cliente\.\s*$"
+    ),
+    re.compile(r"(?im)^\s*-\s*fai una sola conferma finale\s*$"),
+)
+CREATE_BOOKING_DIRECT_BLOCK = """
+
+Create Booking Discipline
+- Per create_booking: dopo check_availability positivo e dopo che il cliente fornisce il nome,
+  esegui subito create_booking.
+- Non chiedere "conferma?", "procedo?" o una seconda autorizzazione per una nuova prenotazione.
+- La richiesta del nome deve già contenere i dettagli: "Ho disponibilità per domani alle 21. A che nome prenoto?"
+- La conferma esplicita separata resta obbligatoria solo per modify_booking e cancel_booking.
+""".strip()
 OVERRIDE_FIELD_LABELS = {
     "model": "Model",
     "voice": "Voice",
@@ -1119,11 +1142,17 @@ def stabilize_realtime_prompt(prompt: str, *, restaurant: Restaurant | None = No
     for pattern in REPEATED_GREETING_PATTERNS:
         cleaned, replacements = pattern.subn("", cleaned)
         removed_repeated_greeting_rule = removed_repeated_greeting_rule or replacements > 0
+    removed_create_confirmation_rule = False
+    for pattern in CREATE_BOOKING_CONFIRMATION_PATTERNS:
+        cleaned, replacements = pattern.subn("", cleaned)
+        removed_create_confirmation_rule = removed_create_confirmation_rule or replacements > 0
     if restaurant is not None:
         cleaned = refresh_realtime_prompt_context(cleaned, restaurant)
     cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
     if removed_repeated_greeting_rule and "Greeting Discipline" not in cleaned:
         cleaned = f"{cleaned}\n\n{GREETING_DISCIPLINE_BLOCK}"
+    if removed_create_confirmation_rule and "Create Booking Discipline" not in cleaned:
+        cleaned = f"{cleaned}\n\n{CREATE_BOOKING_DIRECT_BLOCK}"
     return cleaned
 
 
@@ -1630,6 +1659,9 @@ def studio_prompt_diagnostics(
     normalized = prompt.strip()
     lower_prompt = normalized.lower()
     repeated_greeting_rule = any(pattern.search(normalized) for pattern in REPEATED_GREETING_PATTERNS)
+    create_booking_confirmation_rule = any(
+        pattern.search(normalized) for pattern in CREATE_BOOKING_CONFIRMATION_PATTERNS
+    )
     has_greeting_discipline = (
         "saluto iniziale" in lower_prompt
         and (
@@ -1677,12 +1709,26 @@ def studio_prompt_diagnostics(
             "label": "Write confirmation guard",
             "status": (
                 "good"
-                if "conferma esplicita" in lower_prompt and "stesso turno" in lower_prompt
+                if "conferma esplicita" in lower_prompt
+                and ("modify_booking" in lower_prompt or "cancel_booking" in lower_prompt)
                 else "warn"
             ),
             "detail": (
-                "Il prompt dovrebbe ribadire che create, modify e cancel avvengono "
-                "solo dopo una conferma separata."
+                "Il prompt deve essere cauto su modify/cancel, ma create_booking "
+                "deve partire subito dopo disponibilità positiva e nome cliente."
+            ),
+        },
+        {
+            "label": "Create booking flow",
+            "status": (
+                "warn"
+                if create_booking_confirmation_rule
+                or ("create_booking" in lower_prompt and "non chiedere" not in lower_prompt)
+                else "good"
+            ),
+            "detail": (
+                "Per nuove prenotazioni, chiedere una conferma finale dopo il nome rallenta la chiamata. "
+                "Il nome dopo disponibilità positiva deve bastare per creare la prenotazione."
             ),
         },
         {

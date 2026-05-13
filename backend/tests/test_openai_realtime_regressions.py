@@ -110,6 +110,29 @@ def test_stored_prompt_repeated_greeting_rule_is_neutralized(db_session):
     assert 'non iniziare più le risposte con "Buongiorno"' in prompt
 
 
+def test_stored_prompt_create_booking_confirmation_rule_is_neutralized(db_session):
+    restaurant = db_session.scalar(select(Restaurant).where(Restaurant.slug == "trattoria-da-mario"))
+    restaurant.openai_prompt_override = (
+        "Tools\n"
+        "- Strumenti di scrittura: create_booking, modify_booking, cancel_booking.\n"
+        "- Usa gli strumenti di scrittura solo dopo una conferma esplicita del cliente\n"
+        " e solo nel turno successivo alla domanda finale di conferma.\n\n"
+        "Write Action Rules\n"
+        "- Prima di create_booking, modify_booking o cancel_booking: "
+        "riassumi i dettagli in una frase e chiedi conferma.\n"
+        "- Esegui il tool solo nel turno successivo a una conferma chiara del cliente.\n"
+    )
+    db_session.add(restaurant)
+    db_session.commit()
+
+    prompt = build_realtime_instructions(restaurant, caller_phone="+393401112233")
+
+    assert "Create Booking Discipline" in prompt
+    assert "dopo che il cliente fornisce il nome,\n  esegui subito create_booking" in prompt
+    assert "Prima di create_booking, modify_booking o cancel_booking" not in prompt
+    assert "solo dopo una conferma esplicita del cliente" not in prompt
+
+
 def test_prompt_diagnostics_warn_when_prompt_repeats_greetings(db_session):
     restaurant = db_session.scalar(select(Restaurant).where(Restaurant.slug == "trattoria-da-mario"))
     prompt = (
@@ -131,6 +154,32 @@ def test_prompt_diagnostics_warn_when_prompt_repeats_greetings(db_session):
 
     greeting = next(item for item in diagnostics if item["label"] == "Greeting discipline")
     assert greeting["status"] == "warn"
+
+
+def test_prompt_diagnostics_warn_when_create_booking_waits_for_extra_confirmation(db_session):
+    restaurant = db_session.scalar(select(Restaurant).where(Restaurant.slug == "trattoria-da-mario"))
+    prompt = (
+        "Role & Objective\n- Test.\n\n"
+        "Personality & Tone\n- Non ripetere.\n\n"
+        "Language\n- Segui la lingua del cliente.\n\n"
+        "Tools\n"
+        "- Controllo subito.\n"
+        "- Strumenti di scrittura: create_booking, modify_booking, cancel_booking.\n"
+        "- Usa gli strumenti di scrittura solo dopo una conferma esplicita del cliente\n"
+        " e solo nel turno successivo alla domanda finale di conferma.\n\n"
+        "Write Action Rules\n- Conferma esplicita per create, modify e cancel.\n\n"
+        "Safety & Escalation\n- La metto in contatto con il ristorante.\n\n"
+        "Unclear Audio\n- Non inventare."
+    )
+
+    diagnostics = studio_prompt_diagnostics(
+        prompt,
+        restaurant=restaurant,
+        effective_overrides=RealtimeSessionOverrides(),
+    )
+
+    create_flow = next(item for item in diagnostics if item["label"] == "Create booking flow")
+    assert create_flow["status"] == "warn"
 
 
 def test_stored_prompt_context_is_refreshed_from_restaurant_record(db_session):
