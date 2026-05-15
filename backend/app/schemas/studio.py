@@ -11,6 +11,7 @@ from app.schemas.common import AppBaseModel
 class StudioSessionOverrides(AppBaseModel):
     model: str | None = None
     voice: str | None = None
+    reasoning_effort: Literal["minimal", "low", "medium", "high", "xhigh"] | None = None
     tool_choice: Literal["auto", "none", "required"] | None = None
     temperature: float | None = Field(default=None, ge=0.6, le=1.2)
     speed: float | None = Field(default=None, ge=0.25, le=1.5)

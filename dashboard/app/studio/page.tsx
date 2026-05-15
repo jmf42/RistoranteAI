@@ -507,6 +507,23 @@ export default function StudioPage() {
                           ))}
                         </select>
                       </Field>
+                      <Field label="Reasoning effort">
+                        <select
+                          value={overrides.reasoning_effort ?? "low"}
+                          onChange={(e) =>
+                            set(
+                              "reasoning_effort",
+                              e.target.value as "minimal" | "low" | "medium" | "high" | "xhigh"
+                            )
+                          }
+                        >
+                          <option value="minimal">minimal</option>
+                          <option value="low">low</option>
+                          <option value="medium">medium</option>
+                          <option value="high">high</option>
+                          <option value="xhigh">xhigh</option>
+                        </select>
+                      </Field>
                       <div className="rounded-xl border border-stone/60 bg-ivory/60 px-4 py-3 text-sm leading-6 text-ink/55">
                         Il prompt ora controlla la brevità delle risposte. Questo evita un cursore “reply length” che non influenzava davvero il runtime live.
                       </div>
@@ -532,9 +549,19 @@ export default function StudioPage() {
                         </select>
                       </Field>
                       {(overrides.turn_detection_type ?? "server_vad") === "semantic_vad" ? (
-                        <div className="rounded-xl border border-stone/60 bg-ivory/60 px-4 py-3 text-sm leading-6 text-ink/55">
-                          Semantic VAD uses the runtime default eagerness. This studio keeps that advanced tuning hidden on purpose.
-                        </div>
+                        <Field label="Semantic eagerness">
+                          <select
+                            value={overrides.semantic_vad_eagerness ?? "medium"}
+                            onChange={(e) =>
+                              set("semantic_vad_eagerness", e.target.value as "low" | "medium" | "high" | "auto")
+                            }
+                          >
+                            <option value="low">low</option>
+                            <option value="medium">medium</option>
+                            <option value="high">high</option>
+                            <option value="auto">auto</option>
+                          </select>
+                        </Field>
                       ) : (
                         <>
                           <Field label="VAD threshold">

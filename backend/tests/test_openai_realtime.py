@@ -249,6 +249,8 @@ def test_session_update_uses_ga_session_shape(db_session):
     assert audio["input"]["turn_detection"]["idle_timeout_ms"] == 7000
     assert session["truncation"]["type"] == "retention_ratio"
     assert session["truncation"]["retention_ratio"] == 0.75
+    # gpt-realtime-2 is reasoning-capable; default effort is "low".
+    assert session["reasoning"] == {"effort": "low"}
     assert audio["input"]["transcription"]["model"] == "gpt-4o-mini-transcribe"
     assert "language" not in audio["input"]["transcription"]
     assert session["parallel_tool_calls"] is False
@@ -279,11 +281,21 @@ def test_session_update_with_semantic_vad(db_session):
 
 def test_session_update_applies_model_and_voice_overrides(db_session):
     restaurant = db_session.scalar(select(Restaurant).where(Restaurant.slug == "trattoria-da-mario"))
-    overrides = RealtimeSessionOverrides(model="gpt-realtime-2", voice="cedar")
+    overrides = RealtimeSessionOverrides(model="gpt-realtime-2", voice="cedar", reasoning_effort="minimal")
     session_update = build_session_update(restaurant, caller_phone="+390000000000", overrides=overrides)
     session = session_update["session"]
     assert session["model"] == "gpt-realtime-2"
     assert session["audio"]["output"]["voice"] == "cedar"
+    assert session["reasoning"] == {"effort": "minimal"}
+
+
+def test_session_update_omits_reasoning_for_non_reasoning_realtime_model(db_session):
+    """`gpt-realtime-1.5` and older models reject the reasoning field — must not be sent."""
+    restaurant = db_session.scalar(select(Restaurant).where(Restaurant.slug == "trattoria-da-mario"))
+    overrides = RealtimeSessionOverrides(model="gpt-realtime-1.5", reasoning_effort="low")
+    session_update = build_session_update(restaurant, caller_phone="+390000000000", overrides=overrides)
+    assert session_update["session"]["model"] == "gpt-realtime-1.5"
+    assert "reasoning" not in session_update["session"]
 
 
 def test_session_update_propagates_speed_override_and_clamps(db_session):
