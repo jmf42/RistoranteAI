@@ -108,6 +108,7 @@ def test_operator_can_save_and_reset_persistent_studio_config(client, db_session
             "session_overrides": {
                 "model": "gpt-realtime-2",
                 "voice": "cedar",
+                "reasoning_effort": "minimal",
                 "tool_choice": "auto",
                 "max_response_output_tokens": 180,
             },
@@ -127,6 +128,7 @@ def test_operator_can_save_and_reset_persistent_studio_config(client, db_session
     assert restaurant.openai_prompt_override == "Prompt di produzione personalizzato"
     assert restaurant.openai_realtime_settings["model"] == "gpt-realtime-2"
     assert restaurant.openai_realtime_settings["voice"] == "cedar"
+    assert restaurant.openai_realtime_settings["reasoning_effort"] == "minimal"
     assert "max_response_output_tokens" not in restaurant.openai_realtime_settings
     assert "tool_choice" not in restaurant.openai_realtime_settings
 
@@ -135,7 +137,9 @@ def test_operator_can_save_and_reset_persistent_studio_config(client, db_session
     preview_payload = preview_response.json()
     assert preview_payload["saved_prompt_override"] == "Prompt di produzione personalizzato"
     assert preview_payload["saved_session_overrides"]["model"] == "gpt-realtime-2"
+    assert preview_payload["saved_session_overrides"]["reasoning_effort"] == "minimal"
     assert preview_payload["session_update"]["session"]["model"] == "gpt-realtime-2"
+    assert preview_payload["session_update"]["session"]["reasoning"] == {"effort": "minimal"}
     assert preview_payload["session_update"]["session"]["audio"]["output"]["voice"] == "cedar"
     assert isinstance(preview_payload["config_diff"], list)
 

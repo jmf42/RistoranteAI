@@ -1105,9 +1105,13 @@ Tools
 - Usa gli strumenti di lettura in modo proattivo quando servono.
 - Usa gli strumenti di scrittura rispettando le regole di conferma specifiche per l'azione
   (creazione vs modifica/cancellazione) spiegate nella sezione Write Action Rules.
-- Prima di un tool di lettura usa al massimo una frase breve: "Controllo subito." oppure "Verifico."
-- Prima di un tool di scrittura usa al massimo una frase breve: "Un momento." oppure "Procedo."
-- Chiama il tool subito dopo il preambolo.
+- Prima di un tool di lettura (check_availability, find_booking) usa al massimo una frase breve:
+  "Controllo subito." oppure "Verifico."
+- Per gli strumenti di scrittura (create_booking, modify_booking, cancel_booking) NON usare un preambolo vocale.
+  Chiama direttamente il tool nella stessa risposta e poi comunica l'esito in una sola frase breve.
+  NON dire "Un momento", "Procedo", "Controllo" prima di uno strumento di scrittura.
+- Chiama il tool subito dopo il preambolo (per gli strumenti di lettura)
+  o nella stessa risposta (per gli strumenti di scrittura).
 - Se il tool restituisce retry_write=false o should_escalate=true, non ripeterlo nello stesso turno.
 - Se un tool di scrittura riesce, comunica l'esito in una sola frase breve, saluta e chiudi la chiamata.
 - Nel saluto finale, quando possibile, usa il nome del cliente
@@ -1117,8 +1121,10 @@ Tools
 Conversation Flow
 - Se l'intento è già chiaro, vai subito nel flusso corretto. Non chiedere "Come posso aiutarla?" se non serve.
 - Se la conversazione è già avviata, rispondi direttamente senza ripetere un saluto iniziale.
-- Se il cliente chiede genericamente disponibilità, usa un ponte naturale:
-  "Certo, controllo volentieri: per che ora e per quante persone?"
+- Se il cliente chiede genericamente disponibilità senza giorno/ora/persone,
+  fai UNA SOLA domanda breve che raccolga i dati mancanti
+  (es. "Per che giorno, ora e quante persone?").
+  Non aggiungere una seconda formulazione della stessa domanda nello stesso turno.
 - Nuova prenotazione:
   - raccogli giorno, ora e numero persone
   - se manca un dato, chiedi solo quel dato
@@ -1556,6 +1562,11 @@ def build_session_update(
             "speed": speed_clamped,
         }
 
+    # Cap response length. The GA spec field is `max_output_tokens` (not `max_response_output_tokens`);
+    # accepted range is [1, 4096]. Without this the API defaults to "inf", which lets the model
+    # produce overly long responses — bad for a phone agent and especially with reasoning enabled.
+    session["max_output_tokens"] = max(1, min(4096, int(tuning.max_response_output_tokens)))
+
     if tuning.noise_reduction_type != "off":
         session["audio"]["input"]["noise_reduction"] = {"type": tuning.noise_reduction_type}
     if tuning.input_language:
@@ -1592,6 +1603,35 @@ def _realtime_tool_requires_followup(tool_name: str, result: dict[str, Any]) -> 
     if tool_name == "wait_for_user" or result.get("wait") is True:
         return False
     return True
+
+
+def _make_auto_escalate_dtmf_event(digit: str, transferred: bool) -> dict[str, Any]:
+    """Synthetic tool_events entry for the DTMF escalation path. Pure function for testability."""
+    now_iso = datetime.now(UTC).isoformat()
+    return {
+        "tool": "_auto_escalate_dtmf",
+        "arguments": {"digit": digit},
+        "result": {"transferred": bool(transferred)},
+        "started_at": now_iso,
+        "completed_at": now_iso,
+        "latency_ms": 0,
+    }
+
+
+def _make_auto_escalate_exception_event(exc: BaseException, transferred: bool) -> dict[str, Any]:
+    """Synthetic tool_events entry for the exception-fallback escalation path."""
+    now_iso = datetime.now(UTC).isoformat()
+    return {
+        "tool": "_auto_escalate_exception",
+        "arguments": {
+            "error_type": type(exc).__name__,
+            "error_message": str(exc)[:200],
+        },
+        "result": {"transferred": bool(transferred)},
+        "started_at": now_iso,
+        "completed_at": now_iso,
+        "latency_ms": 0,
+    }
 
 
 def _buffer_twilio_media_payload(
@@ -2928,15 +2968,7 @@ async def bridge_twilio_media_stream(
                                 call_sid=state.twilio_call_sid,
                             )
                             # Observability: record this non-tool escalation path so call audits don't lose it.
-                            now_iso = datetime.now(UTC).isoformat()
-                            state.tool_events.append({
-                                "tool": "_auto_escalate_dtmf",
-                                "arguments": {"digit": digits},
-                                "result": {"transferred": bool(transferred)},
-                                "started_at": now_iso,
-                                "completed_at": now_iso,
-                                "latency_ms": 0,
-                            })
+                            state.tool_events.append(_make_auto_escalate_dtmf_event(digits, bool(transferred)))
                             if not transferred:
                                 raise RuntimeError("DTMF transfer to restaurant failed.")
                             state.outcome = "escalated"
@@ -3373,18 +3405,7 @@ async def bridge_twilio_media_stream(
                 call_sid=state.twilio_call_sid,
             )
             # Observability: record the exception-fallback escalation so the call_log audit captures why.
-            now_iso = datetime.now(UTC).isoformat()
-            state.tool_events.append({
-                "tool": "_auto_escalate_exception",
-                "arguments": {
-                    "error_type": type(exc).__name__,
-                    "error_message": str(exc)[:200],
-                },
-                "result": {"transferred": bool(transferred)},
-                "started_at": now_iso,
-                "completed_at": now_iso,
-                "latency_ms": 0,
-            })
+            state.tool_events.append(_make_auto_escalate_exception_event(exc, bool(transferred)))
             if transferred:
                 state.outcome = "escalated"
         await _update_call(

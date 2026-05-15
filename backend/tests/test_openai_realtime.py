@@ -24,6 +24,8 @@ from app.services.openai_realtime import (
     _finish_initial_greeting,
     _ingest_assistant_transcript,
     _ingest_user_transcript,
+    _make_auto_escalate_dtmf_event,
+    _make_auto_escalate_exception_event,
     _realtime_tool_requires_followup,
     _remember_assistant_audio_transcript,
     _run_silent_response_watchdog,
@@ -264,7 +266,9 @@ def test_session_update_uses_ga_session_shape(db_session):
     assert "modalities" not in session
     assert "temperature" not in session
     assert "speed" not in session
+    # Internal dataclass name is max_response_output_tokens; GA wire field is max_output_tokens.
     assert "max_response_output_tokens" not in session
+    assert session["max_output_tokens"] == 300
     assert "token_limits" not in session["truncation"]
     assert "voice" not in session
 
@@ -287,6 +291,30 @@ def test_session_update_applies_model_and_voice_overrides(db_session):
     assert session["model"] == "gpt-realtime-2"
     assert session["audio"]["output"]["voice"] == "cedar"
     assert session["reasoning"] == {"effort": "minimal"}
+
+
+def test_session_update_writes_and_clamps_max_output_tokens(db_session):
+    """`max_output_tokens` (not `max_response_output_tokens`) is the GA wire field — pin it.
+    Out-of-range values clamp to [1, 4096]."""
+    restaurant = db_session.scalar(select(Restaurant).where(Restaurant.slug == "trattoria-da-mario"))
+    # In-range override propagates verbatim.
+    s = build_session_update(
+        restaurant, caller_phone="+390000000000",
+        overrides=RealtimeSessionOverrides(max_response_output_tokens=180),
+    )["session"]
+    assert s["max_output_tokens"] == 180
+    # Above ceiling clamps down to 4096.
+    s = build_session_update(
+        restaurant, caller_phone="+390000000000",
+        overrides=RealtimeSessionOverrides(max_response_output_tokens=10_000),
+    )["session"]
+    assert s["max_output_tokens"] == 4096
+    # Below floor clamps up to 1.
+    s = build_session_update(
+        restaurant, caller_phone="+390000000000",
+        overrides=RealtimeSessionOverrides(max_response_output_tokens=0),
+    )["session"]
+    assert s["max_output_tokens"] == 1
 
 
 def test_session_update_omits_reasoning_for_non_reasoning_realtime_model(db_session):
@@ -565,6 +593,33 @@ def test_wait_for_user_dispatch_is_noop_without_call_outcome(db_session):
 def test_wait_for_user_does_not_trigger_spoken_tool_followup():
     assert _realtime_tool_requires_followup("wait_for_user", {"success": True, "wait": True}) is False
     assert _realtime_tool_requires_followup("check_availability", {"success": True}) is True
+
+
+def test_auto_escalate_dtmf_event_has_expected_audit_shape():
+    event = _make_auto_escalate_dtmf_event("1", transferred=True)
+    assert event["tool"] == "_auto_escalate_dtmf"
+    assert event["arguments"] == {"digit": "1"}
+    assert event["result"] == {"transferred": True}
+    assert event["latency_ms"] == 0
+    assert event["started_at"] == event["completed_at"]
+    # Failed transfer also captured cleanly.
+    failed = _make_auto_escalate_dtmf_event("9", transferred=False)
+    assert failed["result"] == {"transferred": False}
+
+
+def test_auto_escalate_exception_event_captures_error_type_and_truncated_message():
+    long_msg = "x" * 500
+    event = _make_auto_escalate_exception_event(RuntimeError(long_msg), transferred=True)
+    assert event["tool"] == "_auto_escalate_exception"
+    assert event["arguments"]["error_type"] == "RuntimeError"
+    # 200-char truncation prevents the call_log row from bloating on huge tracebacks.
+    assert len(event["arguments"]["error_message"]) == 200
+    assert event["result"] == {"transferred": True}
+    # Different error types serialize their class name correctly.
+    other = _make_auto_escalate_exception_event(ValueError("bad arg"), transferred=False)
+    assert other["arguments"]["error_type"] == "ValueError"
+    assert other["arguments"]["error_message"] == "bad arg"
+    assert other["result"] == {"transferred": False}
 
 
 def test_instructions_accept_natural_confirmations_and_close_after_success(db_session):

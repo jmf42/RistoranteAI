@@ -86,7 +86,13 @@ def test_default_prompt_keeps_info_calls_open_with_one_brief_follow_up(db_sessio
 
     assert "Greeting Discipline" in prompt
     assert 'Usa "Buongiorno" o "Buonasera" solo nel primo turno della chiamata.' in prompt
-    assert "Certo, controllo volentieri: per che ora e per quante persone?" in prompt
+    # The old verbose-bridge example was removed in favor of a tighter "single question" rule
+    # to prevent the triple-question pattern observed on a real call.
+    assert 'fai UNA SOLA domanda breve che raccolga i dati mancanti' in prompt
+    assert 'Per che giorno, ora e quante persone?' in prompt
+    # And the old write-tool preamble was replaced by an explicit "no preamble" rule for write tools.
+    assert "NON usare un preambolo vocale" in prompt
+    assert 'NON dire "Un momento", "Procedo", "Controllo" prima di uno strumento di scrittura' in prompt
     assert "Dopo una risposta informativa completa, fai una sola breve apertura naturale" in prompt
     assert "Se vuole, posso anche aiutarla con una prenotazione." in prompt
     assert "Se il cliente non aggiunge altro o resta in silenzio, chiudi con cortesia." in prompt
