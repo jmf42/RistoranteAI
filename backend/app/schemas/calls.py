@@ -21,6 +21,8 @@ class CallLogRead(AppBaseModel):
     party_size: int | None = None
     requested_date: str | None = None
     requested_time: str | None = None
+    recording_status: str | None = None
+    recording_available: bool = False
 
 
 class TranscriptResponse(AppBaseModel):

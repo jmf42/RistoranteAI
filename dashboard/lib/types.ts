@@ -166,6 +166,8 @@ export interface CallLog {
   party_size: number | null;
   requested_date: string | null;
   requested_time: string | null;
+  recording_status: string | null;
+  recording_available: boolean;
 }
 
 export interface TranscriptResponse {

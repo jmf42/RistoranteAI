@@ -1,6 +1,6 @@
 # Ristorante AI
 
-Last updated: `2026-05-10`
+Last updated: `2026-05-23`
 
 Ristorante AI is an AI phone receptionist and restaurant operations dashboard for restaurants.
 
@@ -14,7 +14,7 @@ The repo proves one connected operating loop:
 
 ## Current State
 
-This is a live-staging project, not final public production.
+This is a live-staging project, not final public production. It is deployed and ready for controlled production testing.
 
 Cloud Run services:
 
@@ -23,9 +23,9 @@ Cloud Run services:
 
 Database:
 
-- intended runtime: Supabase Postgres
+- runtime: Supabase Postgres
 - repo migration target: Alembic `0012 (head)`
-- current blocker: the deployed backend cannot reach the configured Supabase project, so `/readyz` returns `500`
+- current readiness check: `/readyz` returns `200` on the deployed backend
 
 What works locally:
 
@@ -33,13 +33,13 @@ What works locally:
 - dashboard production build passes
 - Alembic upgrades through `0012` on a local database
 
-What must be fixed before live production testing:
+What must be checked during controlled production testing:
 
-1. Correct the production `database-url` secret in Google Secret Manager.
-2. Confirm backend `/readyz` returns `200`.
-3. Apply Alembic migrations to the real database.
-4. Redeploy backend and dashboard from the intended branch.
-5. Run the production smoke test, Studio tests, and one real Twilio call.
+1. Run one real Twilio call end to end.
+2. Confirm the call appears in the dashboard.
+3. Confirm the recording appears in the call detail view after Twilio finishes processing it.
+4. Confirm bookings, transcripts, tool events, and usage persist correctly.
+5. Turn call recording off when the test window ends if audio retention is no longer needed.
 
 Read `docs/PRODUCTION_STATE.md` before making production claims.
 
@@ -74,6 +74,12 @@ Dashboard:
 cd dashboard
 npm run build
 ```
+
+GitHub hygiene:
+
+- keep production-impacting changes behind reviewed pull requests
+- use `.github/pull_request_template.md` for risk and verification notes
+- do not commit local databases, secrets, Cloud Run env files, or generated build folders
 
 Live deployment smoke test:
 
@@ -138,10 +144,8 @@ Operational details are in `docs/OPERATIONS.md`.
 ## What Is Still Needed Before Public Production
 
 - clean production Supabase project or a deliberate cleanup decision for the current one
-- corrected production `DATABASE_URL` secret and green `/readyz`
 - custom domains and DNS/TLS
 - Sentry DSN or equivalent production error tracking activation
-- post-fix live call verification after the backend redeploy
 - current dashboard URL included in backend CORS allowed origins
 - human transfer validation for only the allowed escalation cases
 - public reservation create/manage/cancel validation against the live database

@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import base64
+import hashlib
+import hmac
 from datetime import UTC, date, datetime
 
 from sqlalchemy import select
@@ -7,6 +10,12 @@ from sqlalchemy import select
 from app.core.config import settings
 from app.models import Booking, CallLog, Restaurant
 from tests.conftest import login
+
+
+def _twilio_signature(url: str, params: dict[str, str], auth_token: str) -> str:
+    payload = url + "".join(f"{key}{value}" for key, value in sorted(params.items()))
+    digest = hmac.new(auth_token.encode(), payload.encode(), hashlib.sha1).digest()
+    return base64.b64encode(digest).decode()
 
 
 def test_transcript_endpoint_returns_local_openai_transcript(client, db_session):
@@ -266,6 +275,38 @@ def test_twilio_inbound_returns_openai_media_stream_twiml(client, db_session, mo
     assert "twilio/media-stream" in body
     assert "<Parameter name=\"token\"" in body
     assert 'statusCallback="https://api.example.com/api/twilio/status"' in body
+    assert "<Recording" not in body
+
+
+def test_twilio_inbound_can_start_call_recording_when_enabled(client, db_session, monkeypatch):
+    restaurant = db_session.scalar(select(Restaurant).where(Restaurant.slug == "trattoria-da-mario"))
+    restaurant.twilio_phone = "+41225394205"
+    restaurant.voice_provider = "openai_realtime"
+    monkeypatch.setattr(settings, "public_base_url", "https://api.example.com")
+    monkeypatch.setattr(settings, "call_recording_enabled", True)
+    monkeypatch.setattr(settings, "call_recording_consent_message", "Questa chiamata puo essere registrata.")
+    db_session.add(restaurant)
+    db_session.commit()
+
+    response = client.post(
+        "/api/twilio/inbound",
+        data={
+            "From": "+41779802809",
+            "To": "+41225394205",
+            "CallSid": "CA_test_recording",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.text
+    assert "Questa chiamata puo essere registrata." in body
+    assert "<Start><Recording" in body
+    assert 'track="both"' in body
+    assert 'channels="dual"' in body
+    assert 'trim="do-not-trim"' in body
+    assert 'recordingStatusCallback="https://api.example.com/api/twilio/recording-status"' in body
+    assert 'recordingStatusCallbackEvent="in-progress completed absent"' in body
+    assert "<Connect><Stream" in body
 
 
 def test_twilio_inbound_accepts_to_number_without_plus(client, db_session, monkeypatch):
@@ -338,6 +379,155 @@ def test_twilio_status_callback_records_stream_errors(client, db_session):
     assert call.call_status == "failed"
     assert call.extra_data["twilio_stream_event"] == "stream-error"
     assert call.extra_data["twilio_stream_error"] == "websocket closed"
+
+
+def test_twilio_recording_status_callback_stores_recording_metadata(client, db_session, monkeypatch):
+    monkeypatch.setattr(settings, "public_base_url", "https://api.example.com")
+    monkeypatch.setattr(settings, "twilio_auth_token", "test-auth-token")
+    restaurant_id = db_session.scalar(select(Restaurant.id).where(Restaurant.slug == "trattoria-da-mario"))
+    call = CallLog(
+        restaurant_id=restaurant_id,
+        voice_provider="openai_realtime",
+        provider_call_id="CA_recording_callback",
+        twilio_call_sid="CA_recording_callback",
+        started_at=datetime.now(UTC),
+        duration_seconds=0,
+        outcome="info_provided",
+        call_status="successful",
+        summary="",
+        transcript_preview="",
+        extra_data={},
+    )
+    db_session.add(call)
+    db_session.commit()
+    form = {
+        "CallSid": "CA_recording_callback",
+        "RecordingSid": "RE123",
+        "RecordingUrl": "https://api.twilio.com/2010-04-01/Accounts/AC123/Recordings/RE123",
+        "RecordingStatus": "completed",
+        "RecordingDuration": "42",
+        "RecordingChannels": "2",
+        "RecordingStartTime": "Fri, 22 May 2026 10:00:00 +0000",
+        "RecordingSource": "StartCallRecordingAPI",
+        "RecordingTrack": "both",
+    }
+    url = "https://api.example.com/api/twilio/recording-status"
+
+    response = client.post(
+        "/api/twilio/recording-status",
+        data=form,
+        headers={"X-Twilio-Signature": _twilio_signature(url, form, "test-auth-token")},
+    )
+
+    assert response.status_code == 200
+    db_session.refresh(call)
+    assert call.call_status == "successful"
+    assert call.extra_data["recording"]["recording_sid"] == "RE123"
+    assert call.extra_data["recording"]["recording_status"] == "completed"
+    assert call.extra_data["recording"]["recording_available"] is True
+
+
+def test_twilio_recording_status_callback_rejects_invalid_signature(client, db_session, monkeypatch):
+    monkeypatch.setattr(settings, "public_base_url", "https://api.example.com")
+    monkeypatch.setattr(settings, "twilio_auth_token", "test-auth-token")
+
+    response = client.post(
+        "/api/twilio/recording-status",
+        data={"CallSid": "CA_missing", "RecordingSid": "RE123", "RecordingStatus": "completed"},
+        headers={"X-Twilio-Signature": "invalid"},
+    )
+
+    assert response.status_code == 403
+
+
+def test_twilio_recording_absent_does_not_fail_call(client, db_session, monkeypatch):
+    monkeypatch.setattr(settings, "public_base_url", "https://api.example.com")
+    monkeypatch.setattr(settings, "twilio_auth_token", "test-auth-token")
+    restaurant_id = db_session.scalar(select(Restaurant.id).where(Restaurant.slug == "trattoria-da-mario"))
+    call = CallLog(
+        restaurant_id=restaurant_id,
+        voice_provider="openai_realtime",
+        provider_call_id="CA_recording_absent",
+        twilio_call_sid="CA_recording_absent",
+        started_at=datetime.now(UTC),
+        duration_seconds=0,
+        outcome="info_provided",
+        call_status="successful",
+        summary="",
+        transcript_preview="",
+        extra_data={},
+    )
+    db_session.add(call)
+    db_session.commit()
+    form = {"CallSid": "CA_recording_absent", "RecordingSid": "RE_absent", "RecordingStatus": "absent"}
+    url = "https://api.example.com/api/twilio/recording-status"
+
+    response = client.post(
+        "/api/twilio/recording-status",
+        data=form,
+        headers={"X-Twilio-Signature": _twilio_signature(url, form, "test-auth-token")},
+    )
+
+    assert response.status_code == 200
+    db_session.refresh(call)
+    assert call.call_status == "successful"
+    assert call.extra_data["recording"]["recording_status"] == "absent"
+    assert call.extra_data["recording"]["recording_available"] is False
+
+
+def test_recording_download_requires_login(client):
+    response = client.get("/api/calls/not-a-real-call/recording")
+
+    assert response.status_code == 401
+
+
+def test_recording_download_streams_twilio_audio_for_allowed_call(client, db_session, monkeypatch):
+    login(client)
+    monkeypatch.setattr(settings, "twilio_account_sid", "AC123")
+    monkeypatch.setattr(settings, "twilio_auth_token", "test-auth-token")
+    restaurant_id = db_session.scalar(select(Restaurant.id).where(Restaurant.slug == "trattoria-da-mario"))
+    call = CallLog(
+        restaurant_id=restaurant_id,
+        voice_provider="openai_realtime",
+        provider_call_id="CA_recording_download",
+        twilio_call_sid="CA_recording_download",
+        started_at=datetime.now(UTC),
+        duration_seconds=42,
+        outcome="info_provided",
+        call_status="successful",
+        summary="",
+        transcript_preview="",
+        extra_data={
+            "recording": {
+                "recording_status": "completed",
+                "recording_available": True,
+                "recording_url": "https://api.twilio.com/2010-04-01/Accounts/AC123/Recordings/RE123",
+            }
+        },
+    )
+    db_session.add(call)
+    db_session.commit()
+
+    class FakeResponse:
+        headers = {"content-type": "audio/mpeg"}
+        content = b"audio-bytes"
+
+        def raise_for_status(self):
+            return None
+
+    def fake_get(url, *, auth, timeout):
+        assert url == "https://api.twilio.com/2010-04-01/Accounts/AC123/Recordings/RE123.mp3"
+        assert auth == ("AC123", "test-auth-token")
+        assert timeout == 20
+        return FakeResponse()
+
+    monkeypatch.setattr("app.api.calls.httpx.get", fake_get)
+
+    response = client.get(f"/api/calls/{call.id}/recording")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("audio/mpeg")
+    assert response.content == b"audio-bytes"
 
 
 def test_twilio_stream_status_without_call_status_preserves_existing_status(client, db_session):

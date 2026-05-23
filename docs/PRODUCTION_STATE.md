@@ -1,12 +1,12 @@
 # Production State
 
-Last updated: `2026-05-10`
+Last updated: `2026-05-23`
 
 This file is the deployment-state snapshot for the OpenAI Realtime live-staging rollout.
 
 ## Snapshot Date
 
-`2026-05-10`
+`2026-05-23`
 
 ## Current Code Reality
 
@@ -30,15 +30,16 @@ Current public endpoints:
 - backend: `https://ristorante-ai-api-jc7mvuujwq-ew.a.run.app`
 - dashboard: `https://ristorante-ai-dashboard-jc7mvuujwq-ew.a.run.app`
 
-Current observed live revisions on `2026-05-10`:
+Current observed live revisions on `2026-05-23`:
 
-- backend: `ristorante-ai-api-00082-qm5`
-- dashboard: `ristorante-ai-dashboard-00038-ht6`
+- backend: `ristorante-ai-api-00097-sin`
+- dashboard: `ristorante-ai-dashboard-00040-san`
 
 Treat this as `live staging`, not final public production.
 
-- local fixes and public reservation work require redeploy and live validation before real traffic.
-- the live `ALLOWED_ORIGINS` setting must match the current dashboard URL.
+- call recording is enabled for controlled testing.
+- the recording consent message is currently empty for testing.
+- the live `ALLOWED_ORIGINS` setting must continue to match the current dashboard URL.
 
 ## Current Database Reality
 
@@ -100,14 +101,15 @@ The following reliability items were addressed and verified locally:
 
 ## Known Live Issues
 
-- live `/readyz` currently fails because the configured Supabase project reference in `database-url` is no longer reachable.
-- production DB secret must be corrected before migrations, smoke tests, or live Twilio tests can be trusted.
+- controlled live call testing is still needed after the call-recording deploy.
+- recorded audio is stored by Twilio; the app stores recording metadata in `call_logs.extra_data`.
 - pending validation of the latest voice fixes and public reservation flow under real deployed traffic.
 
 ## Before Calling This Production-Ready
 
-1. confirm `/studio` saves and reloads live config correctly after the latest push.
-2. test one real inbound Twilio call end to end after redeploy.
-3. test human transfer only for the allowed escalation cases.
-4. verify calls, transcripts, bookings, tool events, and usage persist correctly.
-5. verify `/reserve/[slug]` create/manage/cancel flows against the live database.
+1. Confirm `/studio` saves and reloads live config correctly after the latest push.
+2. Test one real inbound Twilio call end to end.
+3. Confirm the dashboard call detail page can play the Twilio recording.
+4. Test human transfer only for the allowed escalation cases.
+5. Verify calls, transcripts, bookings, tool events, usage, and recording metadata persist correctly.
+6. Verify `/reserve/[slug]` create/manage/cancel flows against the live database.
