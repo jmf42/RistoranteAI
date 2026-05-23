@@ -309,29 +309,29 @@ export function DashboardShell({
         </div>
       ) : null}
 
-      <div className="mx-auto flex max-w-[1500px] flex-col gap-4 px-3 pb-28 pt-2 lg:flex-row lg:gap-6 lg:px-6 lg:py-5 lg:pb-5">
-        <aside className="hidden lg:block lg:sticky lg:top-5 lg:h-[calc(100vh-2.5rem)] lg:w-[300px] lg:flex-none">
-          <div className="ui-night-surface flex h-full flex-col rounded-[2rem] px-6 py-7 text-ivory">
+      <div className="mx-auto flex max-w-[1560px] flex-col gap-4 px-3 pb-28 pt-2 lg:flex-row lg:gap-5 lg:px-5 lg:py-4 lg:pb-4 2xl:px-6">
+        <aside className="hidden lg:block lg:sticky lg:top-4 lg:h-[calc(100vh-2rem)] lg:w-[320px] lg:flex-none">
+          <div className="ui-night-surface flex h-full flex-col rounded-[1.85rem] px-6 py-7 text-ivory">
             <div className="flex items-start gap-4">
-              <div className="ui-brand-mark">
-                <span className="font-display text-[2.15rem] italic leading-none">R</span>
+              <div className="ui-brand-mark h-16 w-16">
+                <span className="font-display text-[2rem] italic leading-none">R</span>
               </div>
-              <div>
+              <div className="min-w-0">
                 <p className="ui-kicker text-xs font-semibold uppercase text-gold/80 sm:text-[11px]">
                 {isOwner ? "Owner board" : "Italian hospitality OS"}
                 </p>
-                <h1 className="mt-4 font-display text-[2.65rem] leading-[0.92] tracking-[-0.01em]">
+                <h1 className="mt-4 font-display text-[2.35rem] leading-[0.94]">
                   <span className="block whitespace-nowrap">Ristorante</span>
                   <span className="block whitespace-nowrap">AI</span>
                 </h1>
-                <p className="mt-3 text-sm leading-6 text-ivory/70">
+                <p className="mt-4 text-sm leading-6 text-ivory/66">
                   {isOwner
                     ? "Agenda servizi e chiamate in un’unica vista calma e leggibile."
                     : "Più tavoli pieni, meno telefonate al banco. Tutto in una sola cabina di regia."}
                 </p>
               </div>
             </div>
-            <nav className="mt-10 space-y-2">
+            <nav className="mt-9 space-y-1.5">
               {visibleNavigation.map((item) => {
                 const Icon = item.icon;
                 const active = pathname === item.href;
@@ -339,13 +339,13 @@ export function DashboardShell({
                   <Link
                     key={item.href}
                     href={item.href}
-                    className={`flex items-center gap-3 rounded-2xl px-4 py-3 text-sm transition ${
+                    className={`group flex items-center gap-3 rounded-[1.15rem] px-4 py-3 text-sm transition ${
                       active
-                        ? "bg-white/10 text-white"
-                        : "text-ivory/72 hover:bg-white/6 hover:text-white"
+                        ? "bg-white/11 text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.04)]"
+                        : "text-ivory/70 hover:bg-white/6 hover:text-white"
                     }`}
                   >
-                    <Icon size={18} />
+                    <Icon size={18} className={active ? "text-gold/80" : "text-ivory/55 transition group-hover:text-gold/75"} />
                     {item.label}
                   </Link>
                 );
@@ -369,7 +369,7 @@ export function DashboardShell({
                 </div>
               </div>
             ) : null}
-            <div className="mt-auto rounded-[1.7rem] border border-white/10 bg-white/5 p-4">
+            <div className="mt-auto rounded-[1.45rem] border border-white/10 bg-white/[0.055] p-4">
               <p className="ui-kicker text-xs uppercase text-gold/70">Profilo</p>
               <p className="mt-3 font-medium text-white">{user.full_name}</p>
               <p className="text-sm text-ivory/65">{user.email}</p>
@@ -388,8 +388,8 @@ export function DashboardShell({
         </aside>
 
         <main className="min-w-0 flex-1">
-          <div className="ui-shell-surface rounded-[1.6rem] p-3 sm:p-5 lg:rounded-[2.25rem] lg:p-7">
-            <header className="mb-4 flex flex-col gap-3 border-b border-stone/60 pb-4 sm:mb-5 sm:gap-4 sm:pb-5 xl:mb-6 xl:flex-row xl:items-end xl:justify-between xl:gap-5 xl:pb-6">
+          <div className="ui-shell-surface rounded-[1.6rem] p-3 sm:p-5 lg:rounded-[2rem] lg:p-6 2xl:p-7">
+            <header className="mb-4 flex flex-col gap-3 border-b border-stone/55 pb-4 sm:mb-5 sm:gap-4 sm:pb-5 xl:mb-5 xl:flex-row xl:items-end xl:justify-between xl:gap-5 xl:pb-5">
               <div className="min-w-0">
                 <p className="ui-kicker text-xs font-semibold uppercase text-terracotta/72 sm:text-[11px]">
                   {restaurant ? restaurant.name : "Workspace"}
