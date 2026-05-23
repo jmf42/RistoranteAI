@@ -134,10 +134,15 @@ Important:
 - stream auth is passed with Twilio custom `<Parameter>` values and validated by the backend when the websocket starts.
 - inbound TwiML must open `<Connect><Stream>` immediately; do not put `<Gather>` before the stream because it can prevent Twilio from starting the WebSocket.
 - mid-call DTMF `1` is handled inside the media stream as the human-escape path.
+- call recording is off by default. For controlled audio QA, set `CALL_RECORDING_ENABLED=true`; the backend plays `CALL_RECORDING_CONSENT_MESSAGE`, starts Twilio recording, stores recording metadata in `call_logs.extra_data`, and serves playback through the authenticated dashboard call detail view.
 
 The stream status callback is generated automatically as:
 
 - `https://<backend-domain>/api/twilio/status`
+
+When call recording is enabled, the recording status callback is generated automatically as:
+
+- `https://<backend-domain>/api/twilio/recording-status`
 
 ## Production Readiness Checklist
 

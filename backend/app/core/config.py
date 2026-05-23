@@ -49,6 +49,11 @@ class Settings(BaseSettings):
     public_base_url: str | None = Field(default=None, validation_alias="PUBLIC_BASE_URL")
     twilio_account_sid: str | None = Field(default=None, validation_alias="TWILIO_ACCOUNT_SID")
     twilio_auth_token: str | None = Field(default=None, validation_alias="TWILIO_AUTH_TOKEN")
+    call_recording_enabled: bool = Field(default=False, validation_alias="CALL_RECORDING_ENABLED")
+    call_recording_consent_message: str = Field(
+        default="Questa chiamata puo essere registrata per migliorare il servizio.",
+        validation_alias="CALL_RECORDING_CONSENT_MESSAGE",
+    )
     public_web_base_url: str | None = Field(default=None, validation_alias="PUBLIC_WEB_BASE_URL")
     notification_from_email: str | None = Field(default=None, validation_alias="NOTIFICATION_FROM_EMAIL")
     smtp_host: str | None = Field(default=None, validation_alias="SMTP_HOST")

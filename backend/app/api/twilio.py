@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import base64
+import hashlib
+import hmac
 from datetime import UTC, datetime
 from html import escape
 from urllib.parse import urlparse, urlunparse
 
 import jwt
-from fastapi import APIRouter, Depends, Request, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket, WebSocketDisconnect, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from starlette.responses import Response
@@ -141,6 +144,39 @@ def _public_http_url(request: Request, path: str) -> str:
     return urlunparse((scheme, parsed.netloc, path, "", "", ""))
 
 
+def _twilio_signature(url: str, params: dict[str, str]) -> str:
+    payload = url + "".join(f"{key}{value}" for key, value in sorted(params.items()))
+    digest = hmac.new((settings.twilio_auth_token or "").encode(), payload.encode(), hashlib.sha1).digest()
+    return base64.b64encode(digest).decode()
+
+
+def _verify_twilio_signature(request: Request, form: dict[str, str]) -> None:
+    received = request.headers.get("X-Twilio-Signature", "")
+    if not settings.twilio_auth_token or not received:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid Twilio signature")
+
+    callback_url = _public_http_url(request, request.url.path)
+    candidates = {str(request.url), callback_url}
+    if not any(hmac.compare_digest(received, _twilio_signature(url, form)) for url in candidates):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid Twilio signature")
+
+
+def _recording_twiml(request: Request) -> str:
+    if not settings.call_recording_enabled:
+        return ""
+
+    callback_url = escape(_public_http_url(request, f"{settings.api_prefix}/twilio/recording-status"))
+    consent = escape(settings.call_recording_consent_message.strip())
+    consent_twiml = f"<Say language=\"it-IT\" voice=\"alice\">{consent}</Say>" if consent else ""
+    return (
+        consent_twiml +
+        f"<Start><Recording name=\"ristorante-ai-recording\" track=\"both\" channels=\"dual\" "
+        f"trim=\"do-not-trim\" recordingStatusCallback=\"{callback_url}\" "
+        f"recordingStatusCallbackMethod=\"POST\" "
+        f"recordingStatusCallbackEvent=\"in-progress completed absent\" /></Start>"
+    )
+
+
 def _ensure_call_log(
     *,
     db: Session,
@@ -207,6 +243,7 @@ async def inbound_call(request: Request, db: Session = Depends(get_db)) -> Respo
     status_url = escape(_public_http_url(request, f"{settings.api_prefix}/twilio/status"))
 
     twiml = (
+        _recording_twiml(request) +
         f"<Connect><Stream url=\"{stream_url}\" statusCallback=\"{status_url}\">"
         f"<Parameter name=\"token\" value=\"{escape(token)}\" />"
         f"</Stream></Connect>"
@@ -255,6 +292,35 @@ async def status_callback(request: Request, db: Session = Depends(get_db)) -> di
                 if call.outcome == "info_provided":
                     call.outcome = "tool_error"
             call.extra_data = extra_data
+        db.add(call)
+        db.commit()
+    return {"ok": True}
+
+
+@router.post("/recording-status", name="twilio_recording_status_callback")
+async def recording_status_callback(request: Request, db: Session = Depends(get_db)) -> dict[str, bool]:
+    form_data = await request.form()
+    form = {str(key): str(value) for key, value in form_data.items()}
+    _verify_twilio_signature(request, form)
+
+    call_sid = form.get("CallSid", "").strip()
+    recording_status = form.get("RecordingStatus", "").strip().lower()
+    call = db.scalar(select(CallLog).where(CallLog.twilio_call_sid == call_sid))
+    if call:
+        extra_data = dict(call.extra_data or {})
+        extra_data["recording"] = {
+            "recording_sid": form.get("RecordingSid") or None,
+            "recording_status": recording_status or None,
+            "recording_available": recording_status == "completed" and bool(form.get("RecordingUrl")),
+            "recording_url": form.get("RecordingUrl") or None,
+            "recording_duration": form.get("RecordingDuration") or None,
+            "recording_channels": form.get("RecordingChannels") or None,
+            "recording_track": form.get("RecordingTrack") or None,
+            "recording_start_time": form.get("RecordingStartTime") or None,
+            "recording_source": form.get("RecordingSource") or None,
+            "updated_at": datetime.now(UTC).isoformat(),
+        }
+        call.extra_data = extra_data
         db.add(call)
         db.commit()
     return {"ok": True}

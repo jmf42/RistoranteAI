@@ -20,11 +20,12 @@ This file is the single source of truth for the live voice stack:
    - stream target: `WS /api/twilio/media-stream`
    - stream status callback: `POST /api/twilio/status`
    - auth token passed as a Twilio `<Parameter>` value, not a query string
-5. The backend opens a server-side OpenAI Realtime WebSocket session.
-6. Caller audio is streamed from Twilio to OpenAI.
-7. Assistant audio is streamed from OpenAI back to Twilio.
-8. Tool calls stay server-side and execute against the booking engine and database.
-9. The backend persists transcript preview, tool events, outcome, and call status in `call_logs`.
+5. If `CALL_RECORDING_ENABLED=true`, the TwiML first plays the configured consent notice, starts Twilio call recording, and sends recording status updates to `POST /api/twilio/recording-status`.
+6. The backend opens a server-side OpenAI Realtime WebSocket session.
+7. Caller audio is streamed from Twilio to OpenAI.
+8. Assistant audio is streamed from OpenAI back to Twilio.
+9. Tool calls stay server-side and execute against the booking engine and database.
+10. The backend persists transcript preview, tool events, outcome, call status, and optional recording metadata in `call_logs`.
 
 Emergency fallback:
 
@@ -38,6 +39,7 @@ This fallback is only for technical failure handling.
 
 - `POST /api/twilio/inbound`
 - `POST /api/twilio/status`
+- `POST /api/twilio/recording-status`
 - `POST /api/twilio/voice-fallback`
 - `WS /api/twilio/media-stream`
 
@@ -88,6 +90,11 @@ The current studio surface also exposes:
 - `PUBLIC_WEB_BASE_URL`
 - `TWILIO_ACCOUNT_SID`
 - `TWILIO_AUTH_TOKEN`
+
+Optional call-recording test controls:
+
+- `CALL_RECORDING_ENABLED` default `false`
+- `CALL_RECORDING_CONSENT_MESSAGE` default Italian consent notice
 
 ### Optional backend tuning
 

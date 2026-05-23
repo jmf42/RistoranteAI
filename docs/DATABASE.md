@@ -73,6 +73,7 @@ Compatibility-only legacy field still present:
 - `dropped_input_audio_packets`
 - call error metadata, when finalization captures an error path
 - basic call metadata
+- optional `recording` metadata from Twilio when `CALL_RECORDING_ENABLED=true`, including recording SID, status, duration, channel count, and Twilio recording URL. Audio files remain in Twilio and are proxied through authenticated backend playback.
 
 ## Booking Write Path
 

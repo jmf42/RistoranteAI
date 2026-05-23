@@ -1,0 +1,65 @@
+name: Bug report
+description: Report a reproducible issue in backend, dashboard, integrations, or production.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What happened?
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Backend
+        - Dashboard
+        - Twilio voice
+        - OpenAI Realtime
+        - Reservations
+        - Database
+        - Deployment
+        - Documentation
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Include exact URLs, user role, test phone call details, or request payloads when useful.
+      placeholder: |
+        1. Go to ...
+        2. Do ...
+        3. See ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: impact
+    attributes:
+      label: Production impact
+      description: Is this blocking live calls, bookings, operators, public reservations, or deployment?
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Logs, screenshots, call SID, or recording notes
+      description: Do not paste secrets or private customer data.
+    validations:
+      required: false
+

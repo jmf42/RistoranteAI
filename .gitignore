@@ -16,6 +16,7 @@ backend/.ruff_cache/
 backend/app/**/__pycache__/
 backend/tests/**/__pycache__/
 backend/alembic/**/__pycache__/
+backend/*.db
 
 dashboard/node_modules/
 dashboard/.next/
