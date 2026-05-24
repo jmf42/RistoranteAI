@@ -473,7 +473,7 @@ export function DashboardShell({
                 }`}
               >
                 <Icon size={18} />
-                <span className="truncate">{item.label}</span>
+                <span className="truncate">{item.label === "Prenotazioni" ? "Prenot." : item.label}</span>
               </Link>
             );
           })}

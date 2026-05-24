@@ -151,7 +151,7 @@ export default function HomePage() {
               </div>
             </article>
 
-            <div className="ui-snap-row -mx-1 flex gap-3 overflow-x-auto px-1 pb-1 sm:mx-0 sm:grid sm:grid-cols-3 sm:overflow-visible sm:px-0 xl:grid-cols-1">
+            <div className="grid gap-3 sm:grid-cols-3 xl:grid-cols-1">
               <KPI
                 label="Coperti oggi"
                 value={String(agenda.summary.today_booked_covers)}
