@@ -1,0 +1,64 @@
+name: Deploy Production
+
+on:
+  workflow_run:
+    workflows:
+      - CI
+    types:
+      - completed
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  deploy:
+    name: Deploy app to Cloud Run
+    if: ${{ (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: production
+
+    env:
+      BACKEND_URL: https://ristorante-ai-api-jc7mvuujwq-ew.a.run.app
+      DASHBOARD_URL: https://ristorante-ai-dashboard-jc7mvuujwq-ew.a.run.app
+      OWNER_EMAIL: ${{ secrets.PROD_OWNER_EMAIL }}
+      OWNER_PASSWORD: ${{ secrets.PROD_OWNER_PASSWORD }}
+
+    steps:
+      - name: Checkout deployed commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || 'main' }}
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_CREDENTIALS_JSON }}
+
+      - name: Set up Google Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Deploy backend and dashboard
+        run: make deploy-all
+
+      - name: Check production health
+        run: |
+          curl --fail --silent --show-error "$BACKEND_URL/health"
+          curl --fail --silent --show-error "$BACKEND_URL/readyz"
+          curl --fail --silent --show-error --location "$DASHBOARD_URL" >/dev/null
+
+      - name: Run optional production smoke test
+        run: |
+          if [ -n "$OWNER_EMAIL" ] && [ -n "$OWNER_PASSWORD" ]; then
+            make smoke-test
+          else
+            echo "Skipping smoke test because PROD_OWNER_EMAIL and PROD_OWNER_PASSWORD are not configured."
+          fi

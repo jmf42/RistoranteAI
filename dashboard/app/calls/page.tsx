@@ -9,6 +9,7 @@ import {
   Phone,
   Search,
   Users,
+  Volume2,
   XCircle,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
@@ -47,6 +48,13 @@ const toolLabels: Record<string, string> = {
   cancel_booking: "Cancellazione prenotazione",
   escalate_to_human: "Trasferimento al ristorante",
 };
+
+function recordingLabel(call: CallLog): string {
+  if (call.recording_available) return "Audio registrato";
+  if (call.recording_status === "in-progress") return "Registrazione in elaborazione";
+  if (call.recording_status === "absent") return "Audio non disponibile";
+  return "";
+}
 
 export default function CallsPage() {
   const { activeRestaurantId } = useWorkspace();
@@ -345,6 +353,23 @@ export default function CallsPage() {
                   <MetaBlock icon={<Info size={14} />} label="Esito tecnico" value={formatCallStatusLabel(selectedCall.call_status)} />
                   <MetaBlock icon={<CheckCircle2 size={14} />} label="Booking linked" value={selectedCall.booking_id || "Nessuna"} />
                 </div>
+
+                {recordingLabel(selectedCall) ? (
+                  <div className="rounded-[1.45rem] border border-stone/80 bg-white/82 p-4">
+                    <div className="flex items-center gap-2 text-sm font-semibold text-ink">
+                      <Volume2 size={16} />
+                      <span>{recordingLabel(selectedCall)}</span>
+                    </div>
+                    {selectedCall.recording_available ? (
+                      <audio
+                        className="mt-3 w-full"
+                        controls
+                        preload="none"
+                        src={`/api/calls/${selectedCall.id}/recording${queryString({ restaurant_id: activeRestaurantId })}`}
+                      />
+                    ) : null}
+                  </div>
+                ) : null}
 
                 <div className="rounded-[1.45rem] border border-stone/80 bg-white/82 p-4">
                   <p className="text-xs font-semibold uppercase tracking-[0.18em] text-ink/45">Prossimo passo</p>

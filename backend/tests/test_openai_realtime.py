@@ -24,6 +24,8 @@ from app.services.openai_realtime import (
     _finish_initial_greeting,
     _ingest_assistant_transcript,
     _ingest_user_transcript,
+    _is_transcription_prompt_echo,
+    _realtime_tool_requires_followup,
     _remember_assistant_audio_transcript,
     _run_silent_response_watchdog,
     _runtime_context_message,
@@ -79,6 +81,7 @@ def test_write_tools_stay_locked_until_successful_read_step():
     )
 
     assert _current_tool_scope(state) == (
+        "wait_for_user",
         "check_availability",
         "find_booking",
         "create_booking",
@@ -94,6 +97,7 @@ def test_write_tools_stay_locked_until_successful_read_step():
     )
 
     assert _current_tool_scope(state) == (
+        "wait_for_user",
         "check_availability",
         "find_booking",
         "create_booking",
@@ -112,6 +116,7 @@ def test_write_tools_unlock_after_successful_availability_check(db_session):
     _append_successful_availability(state, booking_date=booking_date, booking_time="20:00:00", party_size=2)
 
     assert _current_tool_scope(state) == (
+        "wait_for_user",
         "check_availability",
         "find_booking",
         "create_booking",
@@ -248,6 +253,7 @@ def test_session_update_uses_ga_session_shape(db_session):
     assert "language" not in audio["input"]["transcription"]
     assert session["parallel_tool_calls"] is False
     assert [tool["name"] for tool in session["tools"]] == [
+        "wait_for_user",
         "check_availability",
         "find_booking",
         "create_booking",
@@ -307,7 +313,8 @@ def test_session_update_uses_saved_restaurant_config_for_live_calls(db_session):
     session_update = build_session_update(restaurant, caller_phone="+390000000000")
     session = session_update["session"]
 
-    assert session["instructions"] == "Prompt live personalizzato"
+    assert session["instructions"].startswith("Prompt live personalizzato")
+    assert "Booking Safety Repairs" in session["instructions"]
     assert session["model"] == "gpt-realtime-2"
     assert session["audio"]["output"]["voice"] == "cedar"
     assert session["reasoning"] == {"effort": "minimal"}
@@ -473,6 +480,64 @@ def test_realtime_tools_disallow_extra_fields_without_unsupported_strict_flag():
         assert tool["parameters"]["additionalProperties"] is False
 
 
+def test_realtime_tools_include_openai_wait_for_user_noop():
+    tools = build_realtime_tools()
+    wait_tool = next(tool for tool in tools if tool["name"] == "wait_for_user")
+
+    assert wait_tool["type"] == "function"
+    assert "spoken response" in wait_tool["description"]
+    assert wait_tool["parameters"] == {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": False,
+    }
+
+
+def test_instructions_use_wait_for_user_for_non_addressed_audio(db_session):
+    restaurant = db_session.scalar(select(Restaurant).where(Restaurant.slug == "trattoria-da-mario"))
+    session_update = build_session_update(restaurant, caller_phone="+390000000000")
+    instructions = session_update["session"]["instructions"]
+
+    assert "wait_for_user" in instructions
+    assert "rumore di fondo" in instructions
+    assert "non rispondere a voce" in instructions
+    assert "non per richieste chiare ma incomprensibili" in instructions
+
+
+def test_wait_for_user_dispatch_is_noop_without_call_outcome(db_session):
+    session_factory = sessionmaker(bind=db_session.get_bind(), autoflush=False, autocommit=False)
+    restaurant = db_session.scalar(select(Restaurant).where(Restaurant.slug == "trattoria-da-mario"))
+    state = RealtimeCallState(
+        caller_phone="+393409991114",
+        twilio_call_sid="CA_wait_for_user",
+    )
+    original_outcome = state.outcome
+
+    result = _sync_dispatch_tool(
+        session_factory,
+        restaurant=restaurant,
+        state=state,
+        tool_name="wait_for_user",
+        arguments={},
+    )
+
+    assert result == {
+        "success": True,
+        "wait": True,
+        "assistant_instruction": (
+            "Resta in ascolto. Non rispondere a voce finché il cliente non si rivolge chiaramente a te."
+        ),
+    }
+    assert state.outcome == original_outcome
+    assert state.terminal_write_success is False
+
+
+def test_wait_for_user_does_not_trigger_spoken_tool_followup():
+    assert _realtime_tool_requires_followup("wait_for_user", {"success": True, "wait": True}) is False
+    assert _realtime_tool_requires_followup("check_availability", {"success": True}) is True
+
+
 def test_instructions_accept_natural_confirmations_and_close_after_success(db_session):
     restaurant = db_session.scalar(select(Restaurant).where(Restaurant.slug == "trattoria-da-mario"))
     session_update = build_session_update(restaurant, caller_phone="+390000000000")
@@ -486,7 +551,8 @@ def test_instructions_use_soft_confirmation_repair_without_magic_word_prompting(
     session_update = build_session_update(restaurant, caller_phone="+390000000000")
     instructions = session_update["session"]["instructions"]
 
-    assert "Sii elastico: se l'audio è sporco o la risposta è un" in instructions
+    assert "Sii rapido solo sulle conferme semplici" in instructions
+    assert "Non usare mai audio sporco per dedurre nome, orario o coperti" in instructions
     assert "Se una conferma per cancellazione/modifica resta totalmente incomprensibile" in instructions
     assert "Non dire mai al cliente quali parole esatte deve usare" in instructions
 
@@ -776,6 +842,7 @@ def test_find_booking_unlocks_modify_and_cancel_scope():
     )
 
     assert _current_tool_scope(state) == (
+        "wait_for_user",
         "check_availability",
         "find_booking",
         "create_booking",
@@ -783,6 +850,123 @@ def test_find_booking_unlocks_modify_and_cancel_scope():
         "cancel_booking",
         "escalate_to_human",
     )
+
+
+def test_cancel_intent_after_find_booking_only_exposes_cancel_tools():
+    state = RealtimeCallState(
+        caller_phone="+41779802809",
+        twilio_call_sid="CA_cancel_scope",
+        intent="cancel",
+    )
+    state.tool_events.append(
+        {
+            "tool": "find_booking",
+            "arguments": {},
+            "result": {"found": True, "bookings": [{"confirmation_code": "TM-123456"}]},
+        }
+    )
+
+    assert _current_tool_scope(state) == (
+        "wait_for_user",
+        "find_booking",
+        "cancel_booking",
+        "escalate_to_human",
+    )
+
+
+def test_cancel_booking_tool_cancels_confirmed_booking(db_session):
+    session_factory = sessionmaker(bind=db_session.get_bind(), autoflush=False, autocommit=False)
+    restaurant = db_session.scalar(select(Restaurant).where(Restaurant.slug == "trattoria-da-mario"))
+    booking_date = date.fromisoformat(_next_open_date())
+    booking, error = create_booking(
+        db_session,
+        payload=BookingCreate(
+            restaurant_id=restaurant.id,
+            date=booking_date,
+            time=time.fromisoformat("21:00:00"),
+            party_size=2,
+            customer_name="Raffaele De Francesco",
+            customer_phone="+393409991120",
+            source=BookingSource.ai_phone,
+            status=BookingStatus.confirmed,
+        ),
+        changed_by="test",
+    )
+    assert error is None
+    assert booking is not None
+
+    state = RealtimeCallState(
+        caller_phone="+393409991120",
+        twilio_call_sid="CA_cancel_write",
+        intent="cancel",
+    )
+
+    result = _sync_dispatch_tool(
+        session_factory,
+        restaurant=restaurant,
+        state=state,
+        tool_name="cancel_booking",
+        arguments={
+            "confirmation_code": booking.confirmation_code,
+            "confirmation_summary": "cancella la prenotazione delle 21",
+        },
+    )
+
+    assert result["success"] is True
+    assert state.outcome == "booking_cancelled"
+    assert state.terminal_write_success is True
+
+    db_session.refresh(booking)
+    assert booking.status == "cancelled"
+
+
+def test_transcription_prompt_echo_marker_rejects_short_artifact():
+    assert _is_transcription_prompt_echo("Prenotazione telefonica.")
+
+
+def test_invalid_name_reply_blocks_create_booking_even_if_model_invents_name(db_session):
+    session_factory = sessionmaker(bind=db_session.get_bind(), autoflush=False, autocommit=False)
+    restaurant = db_session.scalar(select(Restaurant).where(Restaurant.slug == "trattoria-da-mario"))
+    booking_date = _next_open_date()
+    state = RealtimeCallState(
+        caller_phone="+393409991119",
+        twilio_call_sid="CA_fake_name_guard",
+    )
+    _append_successful_availability(state, booking_date=booking_date, booking_time="20:00:00", party_size=4)
+    _ingest_assistant_transcript(state, "Ho disponibilità per domenica alle 20. A che nome prenoto?")
+    _ingest_user_transcript(state, "Prenotazione telefonica.")
+
+    result = _sync_dispatch_tool(
+        session_factory,
+        restaurant=restaurant,
+        state=state,
+        tool_name="create_booking",
+        arguments={
+            "date": booking_date,
+            "time": "20:00:00",
+            "party_size": 4,
+            "customer_name": "Elisa",
+        },
+    )
+
+    assert result["success"] is False
+    assert result["missing_field"] == "customer_name"
+
+
+def test_service_slot_choice_rejects_2030_when_agent_offers_19_or_21():
+    state = RealtimeCallState(
+        caller_phone="+41779802809",
+        twilio_call_sid="CA_service_slot_2030",
+    )
+
+    _ingest_assistant_transcript(
+        state,
+        "Per la cena posso offrire alle 19 oppure alle 21. Quale preferisce?",
+    )
+    _ingest_user_transcript(state, "20:30")
+
+    assert state.last_requested_field == "service_slot"
+    assert state.last_user_reply_valid is False
 
 
 def test_name_confirmation_only_tracks_requested_field():

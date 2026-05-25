@@ -48,8 +48,9 @@ SUPPORTED_REALTIME_VOICES = {
     "verse",
 }
 RECOMMENDED_REALTIME_VOICES = {"marin", "cedar"}
-INITIAL_TOOL_NAMES = ("check_availability", "find_booking", "create_booking", "escalate_to_human")
+INITIAL_TOOL_NAMES = ("wait_for_user", "check_availability", "find_booking", "create_booking", "escalate_to_human")
 FULL_TOOL_NAMES = (
+    "wait_for_user",
     "check_availability",
     "find_booking",
     "create_booking",
@@ -260,6 +261,20 @@ Create Booking Discipline
 - La richiesta del nome deve già contenere i dettagli: "Ho disponibilità per domani alle 21. A che nome prenoto?"
 - La conferma esplicita separata resta obbligatoria solo per modify_booking e cancel_booking.
 """.strip()
+BOOKING_SAFETY_REPAIR_BLOCK = """
+
+Booking Safety Repairs
+- Nomi: se dopo "A che nome prenoto?" il cliente dice "pronto?", "come?", "grazie",
+  "prenotazione telefonica" o audio non chiaro, NON dire "procedo" e NON chiamare create_booking.
+  Chiedi una sola volta: "Mi ripete solo il nome per la prenotazione?"
+- Se il nome resta poco chiaro dopo due tentativi mirati, passa al ristorante.
+- Orari cena: usa i turni salvati nel database come fasce operative. Per la cena proponi gli orari
+  di inizio turno configurati, per esempio 19:00 oppure 21:00. Se il cliente chiede un orario
+  intermedio come 20:30, non spostarlo in silenzio: spiega che puoi offrire i turni disponibili
+  e chiedi quale preferisce.
+- Cancellazioni: dopo find_booking e dopo un "sì/giusto" sulla prenotazione da cancellare,
+  chiama subito cancel_booking con il codice della prenotazione. Non dire "un momento" senza tool.
+""".strip()
 OVERRIDE_FIELD_LABELS = {
     "model": "Model",
     "voice": "Voice",
@@ -373,8 +388,8 @@ BOOKING_KEYWORDS = {
 }
 MODIFICATION_KEYWORDS = {"modific", "spost", "change my booking", "cambiar"}
 CANCELLATION_KEYWORDS = {"cancel", "cancell", "annull", "supprimer"}
-SLOT_19_MARKERS = {"19", "19:00", "7", "7:00", "7pm", "7 p.m", "dalle 19", "from 7", "19 alle 21"}
-SLOT_21_MARKERS = {"21", "21:00", "9", "9:00", "9pm", "9 p.m", "dalle 21", "from 9", "21 in poi"}
+SLOT_19_MARKERS = {"19:00", "7:00", "7pm", "7 p.m", "dalle 19", "from 7", "19 alle 21"}
+SLOT_21_MARKERS = {"21:00", "9:00", "9pm", "9 p.m", "dalle 21", "from 9", "21 in poi"}
 
 
 @dataclass(slots=True)
@@ -542,7 +557,7 @@ _TRANSCRIPTION_PROMPT_TEXT = "Prenotazione telefonica. Trascrivi quello che dice
 # when audio is unclear.  Used by _is_transcription_prompt_echo() below.
 _TRANSCRIPTION_PROMPT_ECHO_MARKERS = (
     "trascrivi quello che dice il cliente",
-    "prenotazione telefonica. trascrivi",
+    "prenotazione telefonica trascrivi",
 )
 
 
@@ -555,7 +570,9 @@ def _transcription_prompt(restaurant: Restaurant) -> str:
 
 def _is_transcription_prompt_echo(text: str) -> bool:
     """Return True if *text* looks like Whisper echoing the transcription prompt."""
-    lowered = text.strip().lower()
+    lowered = re.sub(r"\s+", " ", text.strip().lower()).strip(" .!?")
+    if lowered == "prenotazione telefonica":
+        return True
     return any(marker in lowered for marker in _TRANSCRIPTION_PROMPT_ECHO_MARKERS)
 
 
@@ -749,7 +766,13 @@ def _detect_requested_field(transcript: str) -> str | None:
         return "customer_name"
     if "seggiolon" in lowered or "high chair" in lowered:
         return "high_chairs"
-    if "nome completo" in lowered or "name" in lowered:
+    if (
+        "nome completo" in lowered
+        or "a che nome" in lowered
+        or "che nome" in lowered
+        or "nome prenoto" in lowered
+        or "name" in lowered
+    ):
         return "customer_name"
     if ("19" in lowered or "21" in lowered or "7 p.m" in lowered or "9 p.m" in lowered) and any(
         cue in lowered for cue in {"quale", "preferisce", "works better", "prefiere", "preferez"}
@@ -771,14 +794,14 @@ def _text_is_negative(text: str) -> bool:
 
 def _slot_choice_from_text(text: str) -> str | None:
     lowered = _normalized_text(text)
-    if any(marker in lowered for marker in SLOT_19_MARKERS):
+    if any(re.search(rf"\b{re.escape(marker)}\b", lowered) for marker in SLOT_19_MARKERS):
         return "slot_19"
-    if any(marker in lowered for marker in SLOT_21_MARKERS):
+    if any(re.search(rf"\b{re.escape(marker)}\b", lowered) for marker in SLOT_21_MARKERS):
         return "slot_21"
     candidate_time = _extract_time_candidate(lowered)
-    if candidate_time and candidate_time.hour in {19, 20}:
+    if candidate_time and candidate_time.hour == 19 and candidate_time.minute == 0:
         return "slot_19"
-    if candidate_time and candidate_time.hour >= 21:
+    if candidate_time and candidate_time.hour == 21 and candidate_time.minute == 0:
         return "slot_21"
     return None
 
@@ -1031,8 +1054,8 @@ Personality & Tone
 - Se un'informazione è già chiara, non richiederla. Se il cliente la ripete, accettala e vai avanti.
 - Nomi clienti: un solo nome o cognome è sufficiente. Se il cliente dice "Manuel" o "Bueno",
   accettalo subito senza chiedere il nome completo.
-- Se il nome è insolito o l'audio è sporco, usa la parola sentita senza bloccarti a chiedere lo spelling
-  o ulteriori conferme.
+- Se il nome è insolito ma chiaro, usa la parola sentita senza chiedere lo spelling.
+- Se il nome non è chiaro, non indovinare: chiedi di ripetere solo il nome.
 - Se il cliente chiede il tuo nome: "Mi chiamo Edoardo."
 - Se chiede se sei un'AI: "Sono l'assistente digitale del ristorante. Mi dica pure."
 - Stile: {restaurant.agent_style_notes or "Tono ospitale, elegante e diretto."}
@@ -1085,8 +1108,15 @@ CRITICAL RULES — NEVER VIOLATE
   Esempi: "DX", "casi persone", lettere isolate, rumori o parole incompatibili con la domanda.
 
 Tools
+- Strumento di attesa silenziosa: wait_for_user.
 - Strumenti di lettura: check_availability, find_booking.
 - Strumenti di scrittura: create_booking, modify_booking, cancel_booking.
+- Se l'ultimo audio è silenzio, rumore di fondo, musica d'attesa, TV, conversazione laterale
+  o parole non rivolte a te, chiama wait_for_user e non rispondere a voce.
+- Dopo wait_for_user resta in ascolto. Non dire "sono qui", "non ho capito", "faccia pure"
+  o frasi simili. Riprendi solo quando il cliente si rivolge chiaramente a te.
+- Usa wait_for_user solo per audio non rivolto all'assistente, non per richieste chiare ma incomprensibili:
+  in quel caso chiedi una chiarificazione mirata.
 - Usa gli strumenti di lettura in modo proattivo quando servono.
 - Usa gli strumenti di scrittura rispettando le regole di conferma specifiche per l'azione
   (creazione vs modifica/cancellazione) spiegate nella sezione Write Action Rules.
@@ -1152,8 +1182,8 @@ Write Action Rules
 - Per modify_booking o cancel_booking: sii più cauto, chiedi una conferma veloce
   ("Cencello per domani alle 21, giusto?") ed esegui al prossimo sì.
 - Se cambiano data, ora o numero persone dopo check_availability, rifai check_availability prima di scrivere.
-- Sii elastico: se l'audio è sporco o la risposta è un "ok"/"va bene" debole, per la creazione consideralo
-  pienamente affermativo. Non bloccarti in loop di rassicurazioni.
+- Sii rapido solo sulle conferme semplici: se data, ora, coperti e nome sono già chiari,
+  un "ok" o "va bene" può bastare. Non usare mai audio sporco per dedurre nome, orario o coperti.
 - Non dire mai al cliente quali parole esatte deve usare per rispondere.
 - Se una conferma per cancellazione/modifica resta totalmente incomprensibile dopo un tentativo mirato,
   passa a un umano.
@@ -1188,11 +1218,12 @@ Unclear Audio
 - Se non capisci qualcosa, chiedi solo la parte mancante.
 - Non indovinare mai.
 - Se non hai sentito bene nome, orario, numero persone, data o conferma, chiedi di ripetere solo quel pezzo.
+- Se il cliente chiede un orario intermedio mentre gli hai offerto i turni di cena, non convertirlo:
+  spiega che puoi offrire solo gli orari di inizio turno disponibili e chiedi quale preferisce.
 - Se la risposta sembra incompatibile con la domanda, correggi subito:
   "Mi scusi, non ho capito bene quel dettaglio. Può ripetere solo l'orario?"
 - Non dire "perfetto" dopo una risposta poco chiara o senza senso.
-- Se c'è rumore e l'interazione è chiaramente orientata a completare la prenotazione, fidati dell'intento
-  e procedi. Non interrompere il flusso magico per incomprensioni vocali minori.
+- Se c'è rumore e manca un dato obbligatorio, non procedere per intuito: chiedi quel dato di nuovo.
 - Usa tentativi mirati solo se manca un dato obbligatorio (es. data o ora). Al massimo due tentativi, poi escala.
 """.strip()
     return stabilize_realtime_prompt(prompt, restaurant=restaurant)
@@ -1215,6 +1246,8 @@ def stabilize_realtime_prompt(prompt: str, *, restaurant: Restaurant | None = No
         cleaned = f"{cleaned}\n\n{GREETING_DISCIPLINE_BLOCK}"
     if removed_create_confirmation_rule and "Create Booking Discipline" not in cleaned:
         cleaned = f"{cleaned}\n\n{CREATE_BOOKING_DIRECT_BLOCK}"
+    if "Booking Safety Repairs" not in cleaned:
+        cleaned = f"{cleaned}\n\n{BOOKING_SAFETY_REPAIR_BLOCK}"
     return cleaned
 
 
@@ -1242,6 +1275,22 @@ def build_realtime_tools(
     tool_names: tuple[str, ...] = FULL_TOOL_NAMES,
 ) -> list[dict[str, Any]]:
     tools = [
+        {
+            "type": "function",
+            "name": "wait_for_user",
+            "description": (
+                "Call this when the latest audio does not need a spoken response, "
+                "such as silence, background noise, hold music, TV audio, side "
+                "conversation, or speech not addressed to the assistant. This tool "
+                "helps end the turn without a spoken reply."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+                "additionalProperties": False,
+            },
+        },
         {
             "type": "function",
             "name": "check_availability",
@@ -1551,6 +1600,12 @@ def _build_tool_scope_update(
             "tool_choice": overrides.tool_choice,
         },
     }
+
+
+def _realtime_tool_requires_followup(tool_name: str, result: dict[str, Any]) -> bool:
+    if tool_name == "wait_for_user" or result.get("wait") is True:
+        return False
+    return True
 
 
 def _buffer_twilio_media_payload(
@@ -2226,6 +2281,16 @@ def _sync_dispatch_tool(
     db: Session = db_factory()
     try:
         try:
+            if tool_name == "wait_for_user":
+                return {
+                    "success": True,
+                    "wait": True,
+                    "assistant_instruction": (
+                        "Resta in ascolto. Non rispondere a voce finché il cliente "
+                        "non si rivolge chiaramente a te."
+                    ),
+                }
+
             if tool_name == "check_availability":
                 if state.last_requested_field and not state.last_user_reply_valid:
                     return _guard_failed_result(
@@ -2276,6 +2341,20 @@ def _sync_dispatch_tool(
                     or arguments.get("name")
                     or ""
                 ).strip()
+                if state.last_requested_field == "customer_name" and not state.last_user_reply_valid:
+                    return {
+                        "success": False,
+                        "reason": "Il nome cliente non è chiaro.",
+                        "missing_field": "customer_name",
+                        "retry_write": False,
+                        "should_escalate": state.should_escalate,
+                        "assistant_instruction": (
+                            "Non creare la prenotazione con un nome dedotto. "
+                            "Chiedi di ripetere solo il nome per la prenotazione."
+                            if not state.should_escalate
+                            else "Non creare la prenotazione. Passa la chiamata al ristorante."
+                        ),
+                    }
                 if not _has_matching_successful_availability(state, arguments):
                     return {
                         "success": False,
@@ -2577,6 +2656,10 @@ def _current_tool_scope(state: RealtimeCallState) -> tuple[str, ...]:
     if state.terminal_write_success:
         return ("escalate_to_human",)
     if _write_tools_unlocked(state):
+        if state.intent == "cancel":
+            return ("wait_for_user", "find_booking", "cancel_booking", "escalate_to_human")
+        if state.intent == "modify":
+            return ("wait_for_user", "find_booking", "modify_booking", "cancel_booking", "escalate_to_human")
         return FULL_TOOL_NAMES
     if state.end_call_after_response:
         return ("escalate_to_human",)
@@ -3122,7 +3205,10 @@ async def bridge_twilio_media_stream(
                                     }
                                 )
                             )
-                            state.pending_tool_followup = True
+                            state.pending_tool_followup = _realtime_tool_requires_followup(
+                                str(item.get("name")),
+                                result,
+                            )
                             await _sync_tool_scope(
                                 realtime_ws,
                                 restaurant,
@@ -3509,7 +3595,10 @@ async def run_text_simulation(
                                 }
                             )
                         )
-                        pending_tool_followup = True
+                        pending_tool_followup = _realtime_tool_requires_followup(
+                            str(item.get("name")),
+                            result,
+                        )
                     continue
 
                 if event_type == "response.done":

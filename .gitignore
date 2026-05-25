@@ -13,6 +13,7 @@ backend/*.egg-info/
 backend/__pycache__/
 backend/.pytest_cache/
 backend/.ruff_cache/
+backend/*.db
 backend/app/**/__pycache__/
 backend/tests/**/__pycache__/
 backend/alembic/**/__pycache__/

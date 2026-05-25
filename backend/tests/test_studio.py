@@ -4,6 +4,7 @@ from sqlalchemy import select
 
 from app.api.deps import get_restaurant_cached
 from app.models import Restaurant
+from app.services.openai_realtime import build_realtime_instructions
 from tests.conftest import login
 
 
@@ -119,7 +120,8 @@ def test_operator_can_save_and_reset_persistent_studio_config(client, db_session
     save_payload = save_response.json()
     assert save_payload["deployed"] is True
     assert save_payload["deployment_status"] == "warning"
-    assert save_payload["effective_prompt"] == "Prompt di produzione personalizzato"
+    assert save_payload["effective_prompt"].startswith("Prompt di produzione personalizzato")
+    assert "Booking Safety Repairs" in save_payload["effective_prompt"]
     assert save_payload["effective_prompt_hash"]
     assert save_payload["effective_session_overrides"]["voice"] == "cedar"
     assert isinstance(save_payload["prompt_diagnostics"], list)
@@ -209,5 +211,9 @@ def test_studio_publish_response_matches_cached_runtime_prompt(client, db_sessio
     assert response.status_code == 200
     payload = response.json()
     cached = get_restaurant_cached(db_session, restaurant.id)
-    assert payload["effective_prompt"] == cached.openai_prompt_override
+    assert payload["effective_prompt"] == build_realtime_instructions(
+        cached,
+        caller_phone="+390000000000",
+    )
+    assert cached.openai_prompt_override == prompt
     assert payload["effective_session_overrides"]["voice"] == "marin"
