@@ -88,9 +88,17 @@ Avoid risky one-step changes such as renaming or deleting columns at the same ti
 
 ## GitHub Setup Required
 
+Google Cloud deploy authentication uses Workload Identity Federation instead of a stored JSON key.
+
+Configured Google Cloud resources:
+
+- service account: `github-deploy@ristorante-ai-20260324-9471.iam.gserviceaccount.com`
+- workload identity pool: `github`
+- workload identity provider: `ristoranteai`
+- provider restriction: only `jmf42/RistoranteAI` on `refs/heads/main`
+
 Add these repository secrets:
 
-- `GCP_CREDENTIALS_JSON`: Google Cloud service account JSON for deployment.
 - `PROD_DATABASE_URL`: production Supabase Postgres URL for Alembic.
 - `PROD_OWNER_EMAIL`: optional owner login for smoke tests.
 - `PROD_OWNER_PASSWORD`: optional owner password for smoke tests.
@@ -112,11 +120,15 @@ The required checks should include:
 
 The deploy service account needs enough permission to deploy Cloud Run from source.
 
-At minimum, expect:
+Configured so far:
 
 - Cloud Run Developer
-- Service Account User
-- Cloud Build permissions for source builds
+- Workload Identity User binding for this GitHub repository
+
+Still required before automated deploys can complete:
+
+- permission to act as the Cloud Run runtime service account
+- permission to start Cloud Build source builds
 - Artifact Registry write access if the project stores build images there
 
 ## Rollback
