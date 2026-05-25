@@ -1,0 +1,65 @@
+name: Migrate Production Database
+
+on:
+  workflow_dispatch:
+    inputs:
+      git_ref:
+        description: "Git branch, tag, or commit containing the migrations to run"
+        required: true
+        default: "main"
+      confirm:
+        description: "Type migrate-production to run Alembic against production"
+        required: true
+
+concurrency:
+  group: production-database-migration
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  migrate:
+    name: Run Alembic on production
+    if: ${{ inputs.confirm == 'migrate-production' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: production-database
+
+    env:
+      DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}
+      BACKEND_URL: https://ristorante-ai-api-jc7mvuujwq-ew.a.run.app
+
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - name: Checkout migration source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.git_ref }}
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install backend dependencies
+        run: uv sync --dev
+
+      - name: Show current migration
+        run: uv run alembic current
+
+      - name: Apply production migrations
+        run: uv run alembic upgrade head
+
+      - name: Show final migration
+        run: uv run alembic current
+
+      - name: Check production readiness
+        working-directory: .
+        run: curl --fail --silent --show-error "$BACKEND_URL/readyz"
