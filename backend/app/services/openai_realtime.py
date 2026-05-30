@@ -312,6 +312,7 @@ NUMBER_WORDS = {
     "cinq": 5,
     "sei": 6,
     "six": 6,
+    "sette": 7,
     "siete": 7,
     "seven": 7,
     "sept": 7,
@@ -551,6 +552,10 @@ _TRANSCRIPTION_PROMPT_TEXT = "Prenotazione telefonica. Trascrivi quello che dice
 _TRANSCRIPTION_PROMPT_ECHO_MARKERS = (
     "trascrivi quello che dice il cliente",
     "prenotazione telefonica. trascrivi",
+    # Short echo: Whisper sometimes echoes just the first two words of the prompt
+    # ("Prenotazione telefonica.") verbatim when audio is silent or unclear.
+    # This is meaningless as a customer reply and must not count as a failed attempt.
+    "prenotazione telefonica",
 )
 
 
@@ -702,6 +707,19 @@ def _extract_party_details(text: str) -> dict[str, int]:
             counts["children"] = number
         elif next_token in {"adulti", "adulti,", "adults", "adultes"}:
             counts["adults"] = number
+        elif next_token in {
+            "persone",
+            "persona",
+            "people",
+            "person",
+            "personne",
+            "personnes",
+            "personas",
+            "coperti",
+            "pax",
+        }:
+            # "sette persone", "due people", "tre coperti" -> party size.
+            counts.setdefault("total", number)
         elif previous_token == "siamo" or (previous_token == "for" and next_token == "people"):
             counts.setdefault("total", number)
     if "total" not in counts and "adults" in counts and "children" in counts:
@@ -757,15 +775,31 @@ def _detect_requested_field(transcript: str) -> str | None:
         return "customer_name"
     if "seggiolon" in lowered or "high chair" in lowered:
         return "high_chairs"
-    if "nome completo" in lowered or "name" in lowered:
+    if (
+        "nome completo" in lowered
+        or "a che nome" in lowered
+        or "che nome" in lowered
+        or "nome prenoto" in lowered
+        or "name" in lowered
+    ):
         return "customer_name"
     if ("19" in lowered or "21" in lowered or "7 p.m" in lowered or "9 p.m" in lowered) and any(
         cue in lowered for cue in {"quale", "preferisce", "works better", "prefiere", "preferez"}
     ):
         return "service_slot"
-    if "giorno" in lowered and "orario" in lowered and ("persone" in lowered or "people" in lowered):
+    has_day = "giorno" in lowered or "day" in lowered
+    has_time = "orario" in lowered or "che ora" in lowered or "quale ora" in lowered or "what time" in lowered
+    has_party = (
+        "quante persone" in lowered or "persone" in lowered or "how many people" in lowered or "people" in lowered
+    )
+    # A combined opener ("Per che giorno, a che ora e per quante persone?") asks
+    # for ALL booking details. It must be tagged as booking_details, never a
+    # single field — otherwise valid answers to the OTHER parts get scored as
+    # failed attempts for the one field we happened to pick, forcing a false
+    # escalation before any tool runs.
+    if has_day and (has_time or has_party):
         return "booking_details"
-    if "orario" in lowered or "what time" in lowered:
+    if "orario" in lowered or "what time" in lowered or "a che ora" in lowered:
         return "time"
     if "quante persone" in lowered or "how many people" in lowered:
         return "party_size"
@@ -862,6 +896,18 @@ def _mark_invalid_field_attempt(state: RealtimeCallState, field_name: str) -> No
 def _clear_invalid_field_attempt(state: RealtimeCallState, field_name: str) -> None:
     state.invalid_field_attempts[field_name] = 0
     state.last_user_reply_valid = True
+
+
+def _reset_field_escalation(state: RealtimeCallState) -> None:
+    """Concrete forward progress (e.g. a successful availability check) clears
+    stale field strikes, so an earlier unclear answer can no longer force an
+    escalation once the call has clearly moved forward. Escalation stays a
+    recoverable state rather than a one-way trap."""
+    state.invalid_field_attempts.clear()
+    state.last_user_reply_valid = True
+    if state.should_escalate and state.escalation_reason not in {"explicit_request", "large_group", "policy"}:
+        state.should_escalate = False
+        state.escalation_reason = None
 
 
 def _guard_failed_result(state: RealtimeCallState, *, reason: str, assistant_instruction: str) -> dict[str, Any]:
@@ -1132,6 +1178,8 @@ Conversation Flow
   - se c'è disponibilità, raccogli il nome
   - usa la richiesta del nome come recita dei dettagli (es. "Ho disponibilità per stasera alle 21. A che nome prenoto?")
   - appena il cliente fornisce un nome, esegui subito create_booking senza chiedere altre conferme o permessi
+  - non annunciare spontaneamente entro che ora il cliente dovrà liberare il tavolo;
+    indica il limite del turno solo se il cliente lo chiede esplicitamente
 - Se l'orario non è disponibile, proponi SOLO orari presenti nel campo "alternatives"
   restituito da check_availability. Se "alternatives" è vuoto, dì che per quell'orario
   non c'è disponibilità e chiedi al cliente un altro giorno od orario.
@@ -2149,6 +2197,17 @@ def _ingest_assistant_transcript(state: RealtimeCallState, transcript: str) -> N
 
 
 def _ingest_user_transcript(state: RealtimeCallState, transcript: str) -> None:
+    # Whisper echoes the transcription prompt ("Prenotazione telefonica") back as
+    # fake caller speech on silent/unclear audio. Treat it as a non-answer: it must
+    # still invalidate the reply (so a write that needs this field is blocked and
+    # the agent re-asks), but it must NOT count as a failed-field attempt — an echo
+    # is noise, not a wrong answer, and counting it pushes otherwise-recoverable
+    # calls into a forced escalation.
+    if _is_transcription_prompt_echo(transcript):
+        if state.last_requested_field:
+            state.last_user_reply_valid = False
+        return
+
     state.last_user_transcript = transcript
     state.intent = _detect_intent(transcript, state.intent)
     _update_booking_context(state, transcript)
@@ -2347,6 +2406,10 @@ def _sync_dispatch_tool(
                     requested_time=requested_time,
                     party_size=party_size,
                 )
+                if result.get("available") is True:
+                    # The call has clearly progressed — don't let strikes accrued
+                    # before this point force a later escalation.
+                    _reset_field_escalation(state)
                 return result
 
             if tool_name == "find_booking":
