@@ -13,12 +13,29 @@ from app.services.openai_realtime import (
     _buffer_twilio_media_payload,
     _build_final_call_summary,
     _build_final_conversation_summary,
+    _current_tool_scope,
     _ingest_assistant_transcript,
     _ingest_user_transcript,
     _sync_dispatch_tool,
     build_realtime_instructions,
     studio_prompt_diagnostics,
 )
+
+
+def _append_successful_availability(
+    state: RealtimeCallState,
+    *,
+    booking_date: str,
+    booking_time: str,
+    party_size: int,
+) -> None:
+    state.tool_events.append(
+        {
+            "tool": "check_availability",
+            "arguments": {"date": booking_date, "party_size": party_size, "time": booking_time},
+            "result": {"available": True, "slot": {"time": booking_time[:5]}},
+        }
+    )
 
 
 def _next_open_date() -> str:
@@ -211,7 +228,7 @@ def test_stored_prompt_context_is_refreshed_from_restaurant_record(db_session):
     assert "- Timezone: Europe/Rome" in prompt
     assert '- Orari: {"lunch": "12:00-16:00", "dinner": "19:00-23:30"}' in prompt
     assert '"max_covers": 40' in prompt
-    assert '- Chiusure settimanali: []' in prompt
+    assert "- Chiusure settimanali: []" in prompt
     assert "- Soglia grandi gruppi: 8" in prompt
 
 
@@ -401,3 +418,89 @@ def test_successful_create_booking_links_call_log_and_summary_uses_tool_truth(db
 
     assert "Prenotazione confermata" in _build_final_call_summary(state)
     assert "create_booking success=true" in _build_final_conversation_summary(state)
+
+
+# ---------------------------------------------------------------------------
+# Regression coverage for the 2026-05-29 false-escalation incident.
+#
+# Three calls escalated that should not have. Root causes:
+#  A) a combined opener ("Per che giorno, a che ora e per quante persone?")
+#     was tagged as the single field `party_size`, so valid answers to the day
+#     and time were scored as failed party-size attempts -> forced escalation
+#     before any tool ran.
+#  B) Whisper echoed the transcription prompt ("Prenotazione telefonica") as
+#     fake caller speech, which was counted as a failed-name attempt.
+#  C) escalation was a one-way trap with no recovery after real progress.
+# ---------------------------------------------------------------------------
+
+
+def test_combined_opener_is_tagged_as_booking_details_not_party_size():
+    state = RealtimeCallState(caller_phone="+393401112233", twilio_call_sid="CA_combined_opener")
+    _ingest_assistant_transcript(state, "Per che giorno, a che ora e per quante persone?")
+    assert state.last_requested_field == "booking_details"
+
+
+def test_combined_opener_answers_do_not_force_escalation():
+    """Call 1 (12:19): caller gave day, time and party in three fragments and
+    was wrongly transferred. Those answers must not trip the strike counter."""
+    state = RealtimeCallState(caller_phone="+393401112233", twilio_call_sid="CA_call1_replay")
+    _ingest_assistant_transcript(state, "Per che giorno, a che ora e per quante persone?")
+
+    _ingest_user_transcript(state, "2 giugno.")
+    _ingest_user_transcript(state, "Dodici30.")
+    _ingest_user_transcript(state, "Per sette persone.")
+
+    assert state.should_escalate is False
+    # The agent must still be able to read/write, not be locked to escalate-only.
+    assert _current_tool_scope(state) != ("escalate_to_human",)
+    # Party size was understood from "sette persone".
+    assert state.booking_context.get("party_size") == 7
+
+
+def test_number_followed_by_persone_is_extracted_as_party_size():
+    state = RealtimeCallState(caller_phone="+393401112233", twilio_call_sid="CA_party_persone")
+    _ingest_assistant_transcript(state, "Per quante persone?")
+    _ingest_user_transcript(state, "Per sette persone.")
+    assert state.last_user_reply_valid is True
+    assert state.booking_context.get("party_size") == 7
+
+
+def test_transcription_prompt_echo_invalidates_name_but_does_not_strike():
+    """Call 2 (12:29): a Whisper echo answered the name question. It must block
+    the write (invalid reply) yet must NOT count as a failed-field attempt."""
+    state = RealtimeCallState(caller_phone="+393401112233", twilio_call_sid="CA_echo_name")
+    _ingest_assistant_transcript(state, "Ho disponibilità per oggi alle 20:30. A che nome prenoto?")
+
+    _ingest_user_transcript(state, "Prenotazione telefonica.")
+
+    assert state.last_user_reply_valid is False
+    assert state.should_escalate is False
+    assert state.invalid_field_attempts.get("customer_name", 0) == 0
+
+
+def test_call2_echo_then_one_unclear_name_does_not_escalate():
+    """Full Call 2 replay: availability succeeded, then an echo and one unclear
+    reply ("Mezz'ora?"). One real strike is not enough to force a transfer, and
+    create_booking must remain reachable for the recovery turn."""
+    state = RealtimeCallState(caller_phone="+393401112233", twilio_call_sid="CA_call2_replay")
+    _append_successful_availability(state, booking_date="2026-05-29", booking_time="20:30:00", party_size=3)
+    _ingest_assistant_transcript(state, "Ho disponibilità per oggi alle 20:30. A che nome prenoto?")
+
+    _ingest_user_transcript(state, "Prenotazione telefonica.")  # echo -> no strike
+    _ingest_user_transcript(state, "Mezz'ora?")  # one genuine unclear reply -> 1 strike
+
+    assert state.should_escalate is False
+    assert "create_booking" in _current_tool_scope(state)
+
+
+def test_two_genuinely_unclear_same_field_answers_still_escalate():
+    """Guardrail must still fire for real ambiguity (no false-negative)."""
+    state = RealtimeCallState(caller_phone="+393401112233", twilio_call_sid="CA_real_escalation")
+    _ingest_assistant_transcript(
+        state,
+        "Per la cena abbiamo due fasce: dalle 19 alle 21 oppure dalle 21 in poi. Quale preferisce?",
+    )
+    _ingest_user_transcript(state, "Ciao.")
+    _ingest_assistant_transcript(state, "Preferisce dalle 19 o dalle 21?")
+    _ingest_user_transcript(state, "Va bene.")
+    assert state.should_escalate is True
