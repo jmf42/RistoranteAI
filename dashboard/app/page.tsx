@@ -97,13 +97,13 @@ export default function HomePage() {
           ))}
         </div>
       ) : agenda ? (
-        <div className="space-y-5">
-          <section className="grid gap-3 xl:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)]">
-            <article className="ui-soft-surface rounded-[2rem] p-5 sm:p-6">
+        <div className="space-y-4">
+          <section className="grid gap-3 xl:grid-cols-[minmax(0,1.2fr)_minmax(300px,0.8fr)]">
+            <article className="ui-soft-surface rounded-[1.75rem] p-5 sm:p-6">
               <p className="ui-kicker text-xs font-semibold uppercase text-terracotta/72 sm:text-[11px]">
                 Apri un servizio
               </p>
-              <h3 className="mt-3 font-display text-3xl text-ink sm:text-4xl">
+              <h3 className="mt-3 max-w-[760px] font-display text-[2rem] leading-[0.98] text-ink sm:text-[2.55rem]">
                 Vai subito alla lista ospiti.
               </h3>
               <p className="mt-2 max-w-2xl text-sm leading-7 text-ink/62">
@@ -116,7 +116,7 @@ export default function HomePage() {
                     <Link
                       key={`${service.date}-${service.turno.turno}`}
                       href={`/bookings?date=${service.date}&turno=${encodeURIComponent(service.turno.turno)}`}
-                      className="min-w-[250px] rounded-[1.5rem] border border-stone/70 bg-white/82 p-4 transition hover:-translate-y-0.5 hover:border-gold hover:bg-white sm:min-w-0"
+                      className="min-w-[250px] rounded-[1.35rem] border border-stone/62 bg-white/82 p-4 transition hover:-translate-y-0.5 hover:border-gold/70 hover:bg-white hover:shadow-[0_14px_28px_-24px_rgba(29,22,18,0.28)] sm:min-w-0"
                     >
                       <div className="flex items-start justify-between gap-3">
                         <div>
@@ -151,7 +151,7 @@ export default function HomePage() {
               </div>
             </article>
 
-            <div className="ui-snap-row -mx-1 flex gap-3 overflow-x-auto px-1 pb-1 sm:mx-0 sm:grid sm:grid-cols-3 sm:overflow-visible sm:px-0 xl:grid-cols-1">
+            <div className="grid gap-3 sm:grid-cols-3 xl:grid-cols-1">
               <KPI
                 label="Coperti oggi"
                 value={String(agenda.summary.today_booked_covers)}
@@ -222,13 +222,13 @@ function KPI({
     "from-white/88 via-white/78 to-[#f4ecdf]";
 
   return (
-    <article className={`ui-soft-surface flex min-w-[210px] items-center gap-4 rounded-[1.5rem] bg-gradient-to-br p-4 sm:min-w-0 ${bg}`}>
+    <article className={`ui-soft-surface flex min-h-[8.35rem] min-w-[210px] items-center gap-4 rounded-[1.35rem] bg-gradient-to-br p-4 sm:min-w-0 ${bg}`}>
       <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/60 bg-white/72 text-ink/48 shadow-[0_12px_28px_-20px_rgba(28,22,18,0.45)]">
         {icon}
       </div>
       <div className="min-w-0">
         <p className="ui-kicker text-[11px] font-semibold uppercase text-ink/42">{label}</p>
-        <p className="mt-0.5 font-display text-3xl text-ink">{value}</p>
+        <p className="mt-0.5 font-display text-[2rem] leading-none text-ink">{value}</p>
         {sub ? <p className="mt-0.5 truncate text-xs text-ink/48">{sub}</p> : null}
       </div>
     </article>
@@ -240,16 +240,16 @@ function DayRow({ day }: { day: OwnerAgendaDay }) {
 
   return (
     <article
-      className={`ui-soft-surface overflow-hidden rounded-[1.5rem] transition-shadow ${
+      className={`ui-soft-surface overflow-hidden rounded-[1.35rem] transition-shadow ${
         day.is_today
-          ? "bg-[linear-gradient(150deg,rgba(255,253,248,0.98),rgba(250,240,218,0.95))] shadow-card"
+          ? "bg-[linear-gradient(150deg,rgba(255,253,248,0.98),rgba(251,243,228,0.95))] shadow-card"
           : isAlert
           ? "bg-[linear-gradient(150deg,rgba(255,250,247,0.96),rgba(248,239,234,0.9))]"
           : "bg-[linear-gradient(150deg,rgba(255,252,248,0.92),rgba(244,236,226,0.86))]"
       }`}
     >
       <div
-        className={`flex items-center justify-between gap-4 px-5 py-4 ${
+        className={`flex items-center justify-between gap-4 px-5 py-3.5 ${
           day.is_today ? "border-b border-gold/25" :
           day.is_closed || !day.turni.length ? "" :
           "border-b border-stone/45"
@@ -304,7 +304,7 @@ function TurnoChip({ date, turno }: { date: string; turno: OwnerAgendaTurno }) {
   return (
     <Link
       href={`/bookings?date=${date}&turno=${encodeURIComponent(turno.turno)}`}
-      className="flex min-w-[170px] flex-1 flex-col gap-2.5 rounded-[1.2rem] border border-stone/55 bg-white/62 px-4 py-3 transition hover:border-gold hover:bg-white"
+      className="flex min-w-[170px] flex-1 flex-col gap-2.5 rounded-[1.1rem] border border-stone/55 bg-white/66 px-4 py-3 transition hover:border-gold/70 hover:bg-white hover:shadow-[0_12px_24px_-22px_rgba(29,22,18,0.24)]"
     >
       <div className="flex items-start justify-between gap-2">
         <div>
