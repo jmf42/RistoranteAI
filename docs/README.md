@@ -1,6 +1,6 @@
 # Documentation Guide
 
-Last updated: `2026-05-10`
+Last updated: `2026-05-23`
 
 Use this folder as the project handoff layer. The code is the source of truth for implementation, but these docs explain what the system is, what is deployed, and how to operate it.
 
@@ -36,4 +36,4 @@ Use this folder as the project handoff layer. The code is the source of truth fo
 
 ## Current Important Caveat
 
-The deployed backend is alive but not database-ready until the production Supabase `DATABASE_URL` secret is corrected. `/health` can return `200` while `/readyz` returns `500`; trust `/readyz` for production readiness.
+The deployed backend currently passes `/readyz` and is ready for controlled live-staging tests. Trust `/readyz` rather than `/health` for database-backed readiness, because `/health` only proves the service process is alive.

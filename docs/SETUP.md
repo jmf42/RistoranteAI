@@ -76,7 +76,11 @@ uv run alembic upgrade head
 - `TWILIO_ACCOUNT_SID`
   required for live transfer to a human
 - `TWILIO_AUTH_TOKEN`
-  required for live transfer to a human
+  required for live transfer to a human and authenticated call-recording playback
+- `CALL_RECORDING_ENABLED`
+  optional, default `false`; enables Twilio recording metadata capture and dashboard audio playback for test calls
+- `CALL_RECORDING_CONSENT_MESSAGE`
+  optional consent notice played before recording starts when call recording is enabled
 
 ## Studio Workflow
 

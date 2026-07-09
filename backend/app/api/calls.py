@@ -4,8 +4,9 @@ import csv
 from datetime import UTC, datetime, timedelta
 from io import StringIO
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from sqlalchemy import case, or_, select
 from sqlalchemy.orm import Session
 
@@ -16,6 +17,7 @@ from app.api.deps import (
     get_restaurant_or_404,
     require_roles,
 )
+from app.core.config import settings
 from app.core.observability import json_log
 from app.core.security import decrypt_pii_or_fallback
 from app.models import CallLog, User
@@ -27,6 +29,7 @@ router = APIRouter(prefix="/calls", tags=["calls"])
 def _call_to_read(call: CallLog) -> CallLogRead:
     extra = call.extra_data or {}
     raw_phone: str | None = extra.get("caller_phone")
+    recording = extra.get("recording", {}) if isinstance(extra.get("recording"), dict) else {}
 
     customer_name = None
     party_size = None
@@ -74,7 +77,17 @@ def _call_to_read(call: CallLog) -> CallLogRead:
         party_size=party_size,
         requested_date=requested_date,
         requested_time=requested_time,
+        recording_status=recording.get("recording_status"),
+        recording_available=bool(recording.get("recording_available")),
     )
+
+
+def _recording_media_url(recording_url: str) -> str:
+    if not recording_url.startswith("https://api.twilio.com/"):
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Invalid recording URL")
+    if recording_url.endswith((".mp3", ".wav")):
+        return recording_url
+    return f"{recording_url}.mp3"
 
 
 @router.get("", response_model=list[CallLogRead])
@@ -244,4 +257,41 @@ def get_transcript(
         summary=call.summary,
         transcript=call.transcript_preview,
         metadata=call.extra_data or {},
+    )
+
+
+@router.get("/{call_id}/recording")
+def get_recording(
+    call_id: str,
+    restaurant_id: str | None = Query(default=None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Response:
+    resolved_id = accessible_restaurant_id(db, current_user=current_user, restaurant_id=restaurant_id)
+    call = db.scalar(select(CallLog).where(CallLog.id == call_id, CallLog.restaurant_id == resolved_id))
+    if not call:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Call not found")
+
+    extra = call.extra_data or {}
+    recording = extra.get("recording", {}) if isinstance(extra.get("recording"), dict) else {}
+    recording_url = recording.get("recording_url")
+    if not recording.get("recording_available") or not recording_url:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recording not available")
+    if not settings.twilio_account_sid or not settings.twilio_auth_token:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Twilio credentials not configured")
+
+    try:
+        twilio_response = httpx.get(
+            _recording_media_url(str(recording_url)),
+            auth=(settings.twilio_account_sid, settings.twilio_auth_token),
+            timeout=20,
+        )
+        twilio_response.raise_for_status()
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Recording fetch failed") from exc
+
+    return Response(
+        content=twilio_response.content,
+        media_type=twilio_response.headers.get("content-type", "audio/mpeg"),
+        headers={"Cache-Control": "private, no-store"},
     )
